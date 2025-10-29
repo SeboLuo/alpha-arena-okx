@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  web-app:
+    build: .
+    container_name: okx-trading-web
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+    environment:
+      - FLASK_ENV=production
+    command: python web_app.py
+    restart: unless-stopped
+
+  trading-bot:
+    build: .
+    container_name: okx-trading-bot
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python deepseekok2.py
+    restart: unless-stopped
+    depends_on:
+      - web-app

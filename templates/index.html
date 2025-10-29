@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OKX BTC交易机器人 - 智能交易系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card-hover {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        .signal-buy { background: linear-gradient(135deg, #10b981, #059669); }
+        .signal-sell { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .signal-hold { background: linear-gradient(135deg, #6b7280, #4b5563); }
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- 导航栏 -->
+    <nav class="gradient-bg text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <i class="fas fa-robot text-2xl"></i>
+                    <h1 class="text-2xl font-bold">OKX BTC交易机器人</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="status" class="px-3 py-1 rounded-full bg-green-500 text-white text-sm">
+                        <i class="fas fa-circle mr-1"></i>运行中
+                    </span>
+                    <span id="lastUpdate" class="text-sm">最后更新: --</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要内容 -->
+    <div class="container mx-auto px-6 py-8">
+        <!-- 顶部概览卡片 -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+            <!-- BTC价格卡片 -->
+            <div class="bg-white rounded-xl shadow-lg p-6 card-hover">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-700">BTC价格</h3>
+                        <p id="btcPrice" class="text-3xl font-bold text-gray-900 mt-2">--</p>
+                        <p id="btcChange" class="text-sm mt-1">--</p>
+                    </div>
+                    <i class="fas fa-bitcoin text-3xl text-yellow-500"></i>
+                </div>
+            </div>
+
+            <!-- 账户余额卡片 -->
+            <div class="bg-white rounded-xl shadow-lg p-6 card-hover">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-700">账户余额</h3>
+                        <p id="accountBalance" class="text-3xl font-bold text-gray-900 mt-2">--</p>
+                        <p class="text-sm text-gray-500 mt-1">可用资金</p>
+                    </div>
+                    <i class="fas fa-wallet text-3xl text-green-500"></i>
+                </div>
+            </div>
+
+            <!-- AI决策信号 -->
+            <div class="bg-white rounded-xl shadow-lg p-6 card-hover">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-700">AI决策</h3>
+                        <div id="aiSignal" class="mt-2">
+                            <span class="px-3 py-1 rounded-full text-white text-lg font-bold">--</span>
+                        </div>
+                        <p id="aiConfidence" class="text-sm mt-1">信心: --</p>
+                    </div>
+                    <i class="fas fa-brain text-3xl text-purple-500"></i>
+                </div>
+            </div>
+
+            <!-- 持仓情况 -->
+            <div class="bg-white rounded-xl shadow-lg p-6 card-hover">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-700">当前持仓</h3>
+                        <p id="positionInfo" class="text-2xl font-bold text-gray-900 mt-2">无持仓</p>
+                        <p id="positionPnl" class="text-sm mt-1">盈亏: --</p>
+                    </div>
+                    <i class="fas fa-chart-line text-3xl text-blue-500"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- 图表和详细数据 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- 价格走势图 -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-700 mb-4">价格走势 & 交易信号</h3>
+                <div class="h-80">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 绩效统计 -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-700 mb-4">交易绩效</h3>
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div class="text-center p-4 bg-green-50 rounded-lg">
+                        <p class="text-2xl font-bold text-green-600" id="totalTrades">0</p>
+                        <p class="text-sm text-green-700">总交易次数</p>
+                    </div>
+                    <div class="text-center p-4 bg-blue-50 rounded-lg">
+                        <p class="text-2xl font-bold text-blue-600" id="winRate">0%</p>
+                        <p class="text-sm text-blue-700">胜率</p>
+                    </div>
+                    <div class="text-center p-4 bg-purple-50 rounded-lg">
+                        <p class="text-2xl font-bold text-purple-600" id="totalPnl">0</p>
+                        <p class="text-sm text-purple-700">总盈亏(USDT)</p>
+                    </div>
+                    <div class="text-center p-4 bg-yellow-50 rounded-lg">
+                        <p class="text-2xl font-bold text-yellow-600" id="avgPnl">0</p>
+                        <p class="text-sm text-yellow-700">平均盈亏</p>
+                    </div>
+                </div>
+                <div class="h-48">
+                    <canvas id="performanceChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 交易记录和AI分析 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 最近交易记录 -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-700 mb-4">最近交易记录</h3>
+                <div class="overflow-y-auto max-h-96">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b">
+                                <th class="text-left py-2">时间</th>
+                                <th class="text-left py-2">信号</th>
+                                <th class="text-left py-2">价格</th>
+                                <th class="text-left py-2">盈亏</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradeHistory">
+                            <!-- 交易记录将通过JavaScript动态加载 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- AI分析详情 -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold text-gray-700">AI分析详情</h3>
+                    <button id="toggleHistory" class="text-sm text-blue-600 hover:text-blue-800">
+                        <i class="fas fa-history mr-1"></i>查看历史记录
+                    </button>
+                </div>
+                
+                <!-- 当前分析详情 -->
+                <div id="currentAnalysis" class="space-y-4">
+                    <div>
+                        <h4 class="font-medium text-gray-600">决策理由</h4>
+                        <p id="aiReason" class="text-sm text-gray-700 mt-1 bg-gray-50 p-3 rounded">等待数据加载...</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <h4 class="font-medium text-gray-600">止损价格</h4>
+                            <p id="stopLoss" class="text-lg font-semibold text-red-600">--</p>
+                        </div>
+                        <div>
+                            <h4 class="font-medium text-gray-600">止盈价格</h4>
+                            <p id="takeProfit" class="text-lg font-semibold text-green-600">--</p>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-600">技术指标</h4>
+                        <div id="technicalIndicators" class="text-sm text-gray-600 mt-1">
+                            <!-- 技术指标将通过JavaScript动态加载 -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 历史记录 -->
+                <div id="analysisHistory" class="hidden space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h4 class="font-medium text-gray-600">AI分析历史记录</h4>
+                        <button id="toggleCurrent" class="text-sm text-blue-600 hover:text-blue-800">
+                            <i class="fas fa-chart-line mr-1"></i>返回当前分析
+                        </button>
+                    </div>
+                    <div class="overflow-y-auto max-h-80">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b">
+                                    <th class="text-left py-2">时间</th>
+                                    <th class="text-left py-2">信号</th>
+                                    <th class="text-left py-2">价格</th>
+                                    <th class="text-left py-2">信心</th>
+                                    <th class="text-left py-2">决策</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyTable">
+                                <!-- 历史记录将通过JavaScript动态加载 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+        // 全局变量
+        let priceChart, performanceChart;
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCharts();
+            loadData();
+            setInterval(loadData, 5000); // 每5秒更新一次数据
+        });
+
+        // 初始化图表
+        function initializeCharts() {
+            // 价格走势图
+            const priceCtx = document.getElementById('priceChart').getContext('2d');
+            priceChart = new Chart(priceCtx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'BTC价格',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: { display: true, text: '交易次数' }
+                        },
+                        y: {
+                            title: { display: true, text: '价格(USDT)' }
+                        }
+                    }
+                }
+            });
+
+            // 绩效图表
+            const perfCtx = document.getElementById('performanceChart').getContext('2d');
+            performanceChart = new Chart(perfCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: '每日盈亏',
+                        data: [],
+                        backgroundColor: '#10b981'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
+
+        // 加载数据
+        async function loadData() {
+            try {
+                const [systemStatus, tradeHistory, performance, analysisHistory] = await Promise.all([
+                    fetch('/api/system-status').then(r => r.json()),
+                    fetch('/api/trade-history').then(r => r.json()),
+                    fetch('/api/performance').then(r => r.json()),
+                    fetch('/api/ai-analysis-history').then(r => r.json())
+                ]);
+
+                updateSystemStatus(systemStatus);
+                updateTradeHistory(tradeHistory);
+                updatePerformance(performance);
+                updateCharts(tradeHistory, performance);
+                updateAnalysisHistory(analysisHistory);
+
+                // 显示最后更新时间
+                document.getElementById('lastUpdate').textContent = 
+                    '最后更新: ' + new Date().toLocaleString();
+
+            } catch (error) {
+                console.error('数据加载失败:', error);
+                // 显示错误信息
+                document.getElementById('lastUpdate').textContent = 
+                    '最后更新: 数据加载失败';
+            }
+        }
+
+        // 更新系统状态
+        function updateSystemStatus(data) {
+            console.log('更新系统状态:', data);
+            
+            try {
+                // 更新状态指示器
+                document.getElementById('status').textContent = data.status === 'running' ? '运行中' : '已停止';
+                
+                // 更新BTC价格
+                if (data.btc_info && data.btc_info.price) {
+                    document.getElementById('btcPrice').textContent = 
+                        '$' + data.btc_info.price.toLocaleString();
+                    
+                    const change = data.btc_info.change || 0;
+                    const changeElement = document.getElementById('btcChange');
+                    changeElement.textContent = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+                    changeElement.className = change >= 0 ? 'text-sm mt-1 text-green-600' : 'text-sm mt-1 text-red-600';
+                } else {
+                    document.getElementById('btcPrice').textContent = '--';
+                    document.getElementById('btcChange').textContent = '--';
+                }
+
+                // 更新账户余额
+                if (data.account_info && data.account_info.balance) {
+                    document.getElementById('accountBalance').textContent = 
+                        data.account_info.balance.toFixed(2) + ' USDT';
+                } else {
+                    document.getElementById('accountBalance').textContent = '-- USDT';
+                }
+
+                // 更新AI信号
+                if (data.ai_signal) {
+                    const signalElement = document.getElementById('aiSignal');
+                    const signal = data.ai_signal.signal || 'HOLD';
+                    const confidence = data.ai_signal.confidence || 'MEDIUM';
+                    
+                    signalElement.innerHTML = `<span class="px-3 py-1 rounded-full text-white text-lg font-bold signal-${signal.toLowerCase()}">
+                        ${signal}
+                    </span>`;
+                    
+                    document.getElementById('aiConfidence').textContent = '信心: ' + confidence;
+                    document.getElementById('aiReason').textContent = data.ai_signal.reason || '等待分析...';
+                    document.getElementById('stopLoss').textContent = data.ai_signal.stop_loss ? 
+                        '$' + data.ai_signal.stop_loss.toLocaleString() : '--';
+                    document.getElementById('takeProfit').textContent = data.ai_signal.take_profit ? 
+                        '$' + data.ai_signal.take_profit.toLocaleString() : '--';
+                } else {
+                    document.getElementById('aiSignal').innerHTML = '<span class="px-3 py-1 rounded-full text-white text-lg font-bold signal-hold">HOLD</span>';
+                    document.getElementById('aiConfidence').textContent = '信心: --';
+                    document.getElementById('aiReason').textContent = '等待分析...';
+                    document.getElementById('stopLoss').textContent = '--';
+                    document.getElementById('takeProfit').textContent = '--';
+                }
+
+                // 更新持仓信息
+                if (data.position && data.position.side) {
+                    const side = data.position.side === 'long' ? '多' : '空';
+                    document.getElementById('positionInfo').textContent = 
+                        `${side}仓 ${data.position.size} 张`;
+                    document.getElementById('positionPnl').textContent = 
+                        `盈亏: ${(data.position.unrealized_pnl || 0).toFixed(2)} USDT`;
+                    
+                    const pnlElement = document.getElementById('positionPnl');
+                    pnlElement.className = data.position.unrealized_pnl >= 0 ? 
+                        'text-sm mt-1 text-green-600' : 'text-sm mt-1 text-red-600';
+                } else {
+                    document.getElementById('positionInfo').textContent = '无持仓';
+                    document.getElementById('positionPnl').textContent = '盈亏: 0 USDT';
+                    document.getElementById('positionPnl').className = 'text-sm mt-1 text-gray-600';
+                }
+            } catch (error) {
+                console.error('更新系统状态失败:', error);
+            }
+        }
+
+        // 更新交易记录
+        function updateTradeHistory(trades) {
+            const tbody = document.getElementById('tradeHistory');
+            tbody.innerHTML = '';
+
+            // 只显示最近10条记录
+            const recentTrades = trades.slice(-10).reverse();
+
+            recentTrades.forEach(trade => {
+                const row = document.createElement('tr');
+                row.className = 'border-b';
+                
+                const signalClass = trade.signal === 'BUY' ? 'text-green-600' : 
+                                  trade.signal === 'SELL' ? 'text-red-600' : 'text-gray-600';
+                
+                const pnlClass = trade.pnl > 0 ? 'text-green-600' : 
+                                trade.pnl < 0 ? 'text-red-600' : 'text-gray-600';
+
+                row.innerHTML = `
+                    <td class="py-2">${trade.timestamp ? trade.timestamp.split(' ')[1] : '--'}</td>
+                    <td class="py-2 ${signalClass}">${trade.signal || '--'}</td>
+                    <td class="py-2">${trade.price ? '$' + trade.price.toLocaleString() : '--'}</td>
+                    <td class="py-2 ${pnlClass}">${trade.pnl ? trade.pnl.toFixed(2) + ' USDT' : '--'}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+
+            if (recentTrades.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-gray-500">暂无交易记录</td></tr>';
+            }
+        }
+
+        // 更新绩效数据
+        function updatePerformance(performance) {
+            document.getElementById('totalTrades').textContent = performance.total_trades || 0;
+            
+            const winRate = performance.total_trades > 0 ? 
+                ((performance.winning_trades || 0) / performance.total_trades * 100).toFixed(1) : 0;
+            document.getElementById('winRate').textContent = winRate + '%';
+            
+            document.getElementById('totalPnl').textContent = (performance.total_pnl || 0).toFixed(2);
+            
+            const avgPnl = performance.total_trades > 0 ? 
+                (performance.total_pnl || 0) / performance.total_trades : 0;
+            document.getElementById('avgPnl').textContent = avgPnl.toFixed(2);
+        }
+
+        // 更新图表
+        function updateCharts(trades, performance) {
+            // 更新价格图表
+            const priceData = trades.map((trade, index) => ({
+                x: index,
+                y: trade.price
+            })).filter(d => d.y);
+
+            priceChart.data.datasets[0].data = priceData;
+            priceChart.update('none');
+
+            // 更新绩效图表
+            if (performance.daily_pnl) {
+                const days = Object.keys(performance.daily_pnl).slice(-7);
+                const pnlValues = days.map(day => performance.daily_pnl[day]);
+                
+                performanceChart.data.labels = days;
+                performanceChart.data.datasets[0].data = pnlValues;
+                performanceChart.update('none');
+            }
+        }
+
+        // 更新AI分析历史记录
+        function updateAnalysisHistory(history) {
+            const tbody = document.getElementById('historyTable');
+            tbody.innerHTML = '';
+
+            // 只显示最近20条记录，按时间倒序
+            const recentHistory = history.slice(-20).reverse();
+
+            recentHistory.forEach(record => {
+                const row = document.createElement('tr');
+                row.className = 'border-b hover:bg-gray-50';
+                
+                const signalClass = record.signal === 'BUY' ? 'text-green-600' : 
+                                  record.signal === 'SELL' ? 'text-red-600' : 'text-gray-600';
+                
+                const confidenceClass = record.confidence === 'HIGH' ? 'text-green-600' : 
+                                      record.confidence === 'MEDIUM' ? 'text-yellow-600' : 'text-red-600';
+
+                // 格式化时间
+                const timestamp = record.timestamp ? new Date(record.timestamp).toLocaleString('zh-CN') : '--';
+                
+                // 截断决策理由，显示前30个字符
+                const shortReason = record.reason ? 
+                    (record.reason.length > 30 ? record.reason.substring(0, 30) + '...' : record.reason) : '--';
+
+                row.innerHTML = `
+                    <td class="py-2 text-xs">${timestamp}</td>
+                    <td class="py-2 ${signalClass} font-medium">${record.signal || '--'}</td>
+                    <td class="py-2">${record.btc_price ? '$' + record.btc_price.toLocaleString() : '--'}</td>
+                    <td class="py-2 ${confidenceClass}">${record.confidence || '--'}</td>
+                    <td class="py-2 text-gray-600" title="${record.reason || ''}">${shortReason}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+
+            if (recentHistory.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-500">暂无分析记录</td></tr>';
+            }
+        }
+
+        // 切换显示历史记录和当前分析
+        document.getElementById('toggleHistory').addEventListener('click', function() {
+            document.getElementById('currentAnalysis').classList.add('hidden');
+            document.getElementById('analysisHistory').classList.remove('hidden');
+            this.classList.add('hidden');
+        });
+
+        document.getElementById('toggleCurrent').addEventListener('click', function() {
+            document.getElementById('analysisHistory').classList.add('hidden');
+            document.getElementById('currentAnalysis').classList.remove('hidden');
+            document.getElementById('toggleHistory').classList.remove('hidden');
+        });
+    </script>
+</body>
+</html>
