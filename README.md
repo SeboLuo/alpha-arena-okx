@@ -46,7 +46,7 @@
 
 ## 🏃‍♂️ 快速开始
 
-### 服务器部署，推荐美国vps服务器部署，价格便宜，访问okx交易所速度快。
+### 服务器部署，推荐美国vps服务器部署，价格便宜，无需翻墙，自动运行，访问okx交易所速度快。
 推荐美国老牌服务器厂商RackNerd稳定服务器**支持支付宝付款**
 - [推荐：满足要求型：1核心1G内存24GSSD2T带宽11.29美元/年](https://my.racknerd.com/aff.php?aff=13902&pid=903)
 - [进阶型：1核心2G内存40GSSD3.5T带宽18.29美元/年](https://my.racknerd.com/aff.php?aff=13902&pid=904)
@@ -72,7 +72,7 @@
    - 模型：qwen-max
    - 设置 `AI_PROVIDER=qwen`
 
-**交易所：okx手机app是唯一大陆能用交易所app，无需翻墙**
+**交易所：okx手机app是大陆唯一能用的交易所app，无需翻墙**
 
 3. **OKX API**: https://www.gtohfmmy.com/join/6746503
    - 使用邀请码注册并完成任务，最高获100usdt奖励
@@ -103,6 +103,8 @@ OKX_PASSWORD=your_actual_okx_password
 
 #### 2. 启动Docker服务
 
+首先进入目录
+
 **Windows:**
 ```cmd
 docker-start.bat
@@ -118,6 +120,9 @@ chmod +x docker-start.sh
 ```bash
 docker-compose up -d
 ```
+**启动完毕会出现2个容器（宝塔面板为例）**
+
+<img width="1621" height="295" alt="image" src="https://github.com/user-attachments/assets/cfb51c6d-d60e-4bb9-ae56-22e9aaa8641a" />
 
 #### 3. 访问Web界面
 
@@ -178,24 +183,22 @@ http://localhost:5002
 
 在 `deepseekok2.py` 中可以调整交易参数：
 
-deepseekok2.py中修改交易参数
-
 *** 投入保证金计算公式=下单基数*信心系数*仓位比例%*趋势系数 ***
-例：基数100usdt，中信心，仓位0.5，高趋势，保证金=100*1*0.5*1.2=60
+例：基数100usdt，中信心，仓位0.5，趋势，保证金=100*1*0.5*1.2=60
 
 ```python
 TRADE_CONFIG = {
     'symbol': 'BTC/USDT:USDT',  # OKX的合约符号格式
     'leverage': 10,  # 杠杆倍数,只影响保证金不影响下单价值
     'timeframe': '15m',  # 使用15分钟K线
-    'test_mode': False,  # 测试模式
+    'test_mode': False,  # 测试模式开关
     'data_points': 96,  # 24小时数据（96根15分钟K线）
     'analysis_periods': {
         'short_term': 20,  # 短期均线
         'medium_term': 50,  # 中期均线
         'long_term': 96  # 长期趋势
     },
-    # 新增智能仓位参数
+    # 智能仓位参数
     'position_management': {
         'enable_intelligent_position': True,  # 🆕 新增：是否启用智能仓位管理
         'base_usdt_amount': 100,  # USDT投入下单基数
