@@ -3,6 +3,8 @@
 ## 项目概述
 
 这是一个基于DeepSeek AI的OKX BTC/USDT自动交易系统，集成了实时数据分析、AI决策和Web可视化界面。支持Docker容器化部署，确保系统稳定运行。
+<img width="1910" height="923" alt="image" src="https://github.com/user-attachments/assets/04c39b2b-6d16-42bc-b6ea-a716419034e9" />
+<img width="1910" height="923" alt="image" src="https://github.com/user-attachments/assets/442e402e-64e9-41c9-85cc-71e041bc14b9" />
 
 ## 🚀 功能特性
 
