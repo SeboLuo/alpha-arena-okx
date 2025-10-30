@@ -7,6 +7,7 @@
 <img width="1910" height="923" alt="image" src="https://github.com/user-attachments/assets/442e402e-64e9-41c9-85cc-71e041bc14b9" />
 
 ## 🚀 功能特性
+<img width="369" height="420" alt="image" src="https://github.com/user-attachments/assets/eff37532-b607-4ffa-8f5a-41e05e149a69" />
 
 ### 🤖 交易机器人
 - **智能AI决策**: 使用DeepSeek AI分析市场趋势
