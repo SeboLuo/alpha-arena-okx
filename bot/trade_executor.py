@@ -8,7 +8,6 @@ from data_manager import save_trade_record
 
 def execute_intelligent_trade(signal_data, price_data):
     """执行智能交易 - OKX版本（支持同方向加仓减仓）"""
-    from .config import position
 
     current_position = get_current_position()
 
@@ -199,16 +198,17 @@ def execute_intelligent_trade(signal_data, price_data):
 
         print("智能交易执行成功")
         time.sleep(2)
-        position = get_current_position()
-        print(f"更新后持仓: {position}")
+        # 获取交易后的持仓状态，用于比较和计算盈亏
+        updated_position = get_current_position()
+        print(f"更新后持仓: {updated_position}")
         
         # 保存交易记录
         try:
             # 计算实际盈亏（如果有持仓）
             pnl = 0
-            if current_position and position:
+            if current_position and updated_position:
                 # 如果方向改变或平仓，计算盈亏
-                if current_position['side'] != position.get('side'):
+                if current_position['side'] != updated_position.get('side'):
                     if current_position['side'] == 'long':
                         pnl = (price_data['price'] - current_position['entry_price']) * current_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
                     else:
