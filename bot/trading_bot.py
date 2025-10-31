@@ -14,7 +14,7 @@ from data_manager import update_system_status, save_ai_analysis_record
 def trading_bot():
     """主交易机器人函数"""
     # 等待到整点再执行
-    wait_seconds = wait_for_next_period()
+    wait_seconds = wait_for_next_period(TRADE_CONFIG['interval_minutes'])
     if wait_seconds > 0:
         print(f"⏰ 等待 {wait_seconds} 秒到下一个整点...")
         # 分段等待，避免长时间阻塞导致进程退出
@@ -183,7 +183,7 @@ def main():
         print(f"⚠️ Web界面数据初始化失败: {e}")
         print("继续运行，将在首次交易时创建数据")
 
-    print("执行频率: 每15分钟整点执行")
+    print(f"执行频率: 每{TRADE_CONFIG['interval_minutes']}分钟整点执行")
 
     # 循环执行（简化逻辑，避免冲突）
     while True:

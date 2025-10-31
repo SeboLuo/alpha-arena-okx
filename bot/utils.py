@@ -34,15 +34,19 @@ def create_fallback_signal(price_data):
     }
 
 
-def wait_for_next_period():
-    """等待到下一个15分钟整点"""
+def wait_for_next_period(interval_minutes=15):
+    """等待到下一个间隔整点
+    
+    Args:
+        interval_minutes: 执行间隔（分钟），例如15表示每15分钟执行一次（在00, 15, 30, 45分）
+    """
     now = datetime.now()
     current_minute = now.minute
     current_second = now.second
 
-    # 计算下一个整点时间（00, 15, 30, 45分钟）
-    next_period_minute = ((current_minute // 15) + 1) * 15
-    if next_period_minute == 60:
+    # 计算下一个整点时间（根据interval_minutes间隔）
+    next_period_minute = ((current_minute // interval_minutes) + 1) * interval_minutes
+    if next_period_minute >= 60:
         next_period_minute = 0
 
     # 计算需要等待的总秒数

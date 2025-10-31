@@ -26,9 +26,10 @@ exchange = ccxt.okx({
 TRADE_CONFIG = {
     'symbol': 'BTC/USDT:USDT',  # OKX的合约符号格式
     'leverage': 10,  # 杠杆倍数,只影响保证金不影响下单价值
-    'timeframe': '15m',  # 使用15分钟K线
+    'timeframe': '10m',  # 使用15分钟K线
+    'interval_minutes': 10,  # 执行间隔（分钟），服务将在此时间间隔的整点执行
     'test_mode': False,  # 测试模式
-    'data_points': 96,  # 24小时数据（96根15分钟K线）
+    'data_points': 96,  # 96根timeframe周期的K线
     'analysis_periods': {
         'short_term': 20,  # 短期均线
         'medium_term': 50,  # 中期均线
