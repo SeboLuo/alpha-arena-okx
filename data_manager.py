@@ -36,9 +36,11 @@ class DataManager:
             self._save_json(self.performance_file, {
                 "total_trades": 0,
                 "winning_trades": 0,
+                "completed_trades": 0,  # 基于仓位配对完成的交易次数
                 "total_pnl": 0,
                 "daily_pnl": {},
-                "monthly_pnl": {}
+                "monthly_pnl": {},
+                "position_records": []  # 仓位记录：开仓和平仓配对
             })
         
         if not os.path.exists(self.ai_analysis_file):
@@ -94,13 +96,29 @@ class DataManager:
         """更新绩效数据"""
         performance = self._load_json(self.performance_file)
         
-        # 更新基础统计
+        # 保持原始逻辑：每次保存交易记录都增加 total_trades
         performance["total_trades"] = performance.get("total_trades", 0) + 1
         
         pnl = trade_record.get("pnl", 0)
-        if pnl > 0:
-            performance["winning_trades"] = performance.get("winning_trades", 0) + 1
+        position_action = trade_record.get("position_action")
         
+        # 记录仓位事件（开仓或平仓），用于计算合约交易的胜率
+        if position_action in ['open', 'close']:
+            position_records = performance.get("position_records", [])
+            position_records.append({
+                'timestamp': trade_record.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                'action': position_action,
+                'side': trade_record.get('position_side'),
+                'price': trade_record.get('price'),
+                'amount': trade_record.get('amount'),
+                'pnl': pnl
+            })
+            performance["position_records"] = position_records
+        
+        # 基于仓位记录计算胜率
+        self._calculate_win_rate_from_positions(performance)
+        
+        # 总盈亏和每日/月度统计仍然基于所有交易的 pnl
         performance["total_pnl"] = performance.get("total_pnl", 0) + pnl
         
         # 更新每日绩效
@@ -116,6 +134,50 @@ class DataManager:
         performance["monthly_pnl"] = monthly_pnl
         
         self._save_json(self.performance_file, performance)
+    
+    def _calculate_win_rate_from_positions(self, performance):
+        """基于仓位记录计算胜率（开仓+平仓配对）"""
+        position_records = performance.get("position_records", [])
+        
+        if not position_records:
+            performance["completed_trades"] = 0
+            performance["winning_trades"] = 0
+            return
+        
+        # 配对开仓和平仓记录，计算完成的交易
+        completed_trades = 0
+        winning_trades = 0
+        open_positions = {}  # {side: [open_record, ...]}
+        
+        for record in position_records:
+            action = record.get('action')
+            side = record.get('side')
+            
+            if action == 'open':
+                # 记录开仓
+                if side not in open_positions:
+                    open_positions[side] = []
+                open_positions[side].append(record)
+            elif action == 'close':
+                # 匹配最近的同方向开仓记录
+                closed_side = record.get('side')
+                if closed_side in open_positions and len(open_positions[closed_side]) > 0:
+                    # 配对成功，完成一次交易
+                    completed_trades += 1
+                    if record.get('pnl', 0) > 0:
+                        winning_trades += 1
+                    # 移除已配对的开仓记录（FIFO）
+                    open_positions[closed_side].pop(0)
+                else:
+                    # 没有匹配的开仓记录，可能是历史数据或数据不一致
+                    # 仍然计算为一次交易（平仓时 pnl 不为 0）
+                    if record.get('pnl', 0) != 0:
+                        completed_trades += 1
+                        if record.get('pnl', 0) > 0:
+                            winning_trades += 1
+        
+        performance["completed_trades"] = completed_trades
+        performance["winning_trades"] = winning_trades
     
     def get_system_status(self):
         """获取系统状态"""

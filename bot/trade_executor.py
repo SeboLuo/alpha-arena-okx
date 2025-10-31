@@ -204,27 +204,82 @@ def execute_intelligent_trade(signal_data, price_data):
         
         # 保存交易记录
         try:
-            # 计算实际盈亏（如果有持仓）
+            # 计算实际盈亏（如果有持仓）和识别仓位操作类型
             pnl = 0
-            if current_position and updated_position:
-                # 如果方向改变或平仓，计算盈亏
-                if current_position['side'] != updated_position.get('side'):
+            position_action = None  # 'open', 'close', None (加仓/减仓不记录)
+            position_side = None
+            
+            if current_position:
+                # 情况1: 完全平仓（从有持仓变成无持仓）
+                if updated_position is None:
+                    position_action = 'close'
+                    position_side = current_position['side']
                     if current_position['side'] == 'long':
                         pnl = (price_data['price'] - current_position['entry_price']) * current_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
                     else:
                         pnl = (current_position['entry_price'] - price_data['price']) * current_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+                # 情况2: 方向改变（平仓并开新仓）
+                elif current_position['side'] != updated_position.get('side'):
+                    position_action = 'close'  # 当前操作是平仓
+                    position_side = current_position['side']
+                    if current_position['side'] == 'long':
+                        pnl = (price_data['price'] - current_position['entry_price']) * current_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+                    else:
+                        pnl = (current_position['entry_price'] - price_data['price']) * current_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+            else:
+                # 情况3: 从无持仓到有持仓（开仓）
+                if updated_position:
+                    position_action = 'open'
+                    position_side = updated_position['side']
             
-            trade_record = {
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'signal': signal_data['signal'],
-                'price': price_data['price'],
-                'amount': position_size,
-                'confidence': signal_data['confidence'],
-                'reason': signal_data['reason'],
-                'pnl': pnl
-            }
-            save_trade_record(trade_record)
-            print("✅ 交易记录已保存")
+            # 如果方向改变，需要额外记录开仓事件
+            if current_position and updated_position and current_position['side'] != updated_position.get('side'):
+                # 先保存平仓记录
+                close_record = {
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'signal': signal_data['signal'],
+                    'price': price_data['price'],
+                    'amount': current_position['size'],
+                    'confidence': signal_data['confidence'],
+                    'reason': signal_data['reason'],
+                    'pnl': pnl,
+                    'position_action': 'close',
+                    'position_side': current_position['side']
+                }
+                save_trade_record(close_record)
+                
+                # 再保存开仓记录（新仓位）
+                open_record = {
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'signal': signal_data['signal'],
+                    'price': price_data['price'],
+                    'amount': position_size,
+                    'confidence': signal_data['confidence'],
+                    'reason': signal_data['reason'],
+                    'pnl': 0,
+                    'position_action': 'open',
+                    'position_side': updated_position['side']
+                }
+                save_trade_record(open_record)
+                print("✅ 交易记录已保存（平仓+开仓）")
+            else:
+                # 普通交易记录（开仓、平仓、加仓、减仓）
+                trade_record = {
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'signal': signal_data['signal'],
+                    'price': price_data['price'],
+                    'amount': position_size,
+                    'confidence': signal_data['confidence'],
+                    'reason': signal_data['reason'],
+                    'pnl': pnl
+                }
+                # 只有开仓或平仓时才添加仓位标识
+                if position_action:
+                    trade_record['position_action'] = position_action
+                    trade_record['position_side'] = position_side
+                
+                save_trade_record(trade_record)
+                print("✅ 交易记录已保存")
         except Exception as e:
             print(f"保存交易记录失败: {e}")
 

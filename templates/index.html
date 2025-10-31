@@ -426,16 +426,21 @@
 
         // 更新绩效数据
         function updatePerformance(performance) {
+            // 总交易次数保持原来的逻辑（每次交易记录）
             document.getElementById('totalTrades').textContent = performance.total_trades || 0;
             
-            const winRate = performance.total_trades > 0 ? 
-                ((performance.winning_trades || 0) / performance.total_trades * 100).toFixed(1) : 0;
+            // 胜率基于仓位记录（开仓+平仓配对）来计算
+            const completedTrades = performance.completed_trades || 0;
+            const winningTrades = performance.winning_trades || 0;
+            const winRate = completedTrades > 0 ? 
+                ((winningTrades / completedTrades * 100).toFixed(1)) : 0;
             document.getElementById('winRate').textContent = winRate + '%';
             
             document.getElementById('totalPnl').textContent = (performance.total_pnl || 0).toFixed(2);
             
-            const avgPnl = performance.total_trades > 0 ? 
-                (performance.total_pnl || 0) / performance.total_trades : 0;
+            // 平均盈亏基于完成的交易次数（仓位配对）
+            const avgPnl = completedTrades > 0 ? 
+                (performance.total_pnl || 0) / completedTrades : 0;
             document.getElementById('avgPnl').textContent = avgPnl.toFixed(2);
         }
 
