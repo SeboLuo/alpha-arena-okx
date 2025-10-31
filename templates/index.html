@@ -147,7 +147,7 @@
             <!-- 最近交易记录 -->
             <div class="bg-white rounded-xl shadow-lg p-6">
                 <h3 class="text-lg font-semibold text-gray-700 mb-4">最近交易记录</h3>
-                <div class="overflow-y-auto max-h-96">
+                <div class="overflow-y-auto max-h-96 mb-4">
                     <table class="w-full text-sm">
                         <thead>
                             <tr class="border-b">
@@ -161,6 +161,23 @@
                             <!-- 交易记录将通过JavaScript动态加载 -->
                         </tbody>
                     </table>
+                </div>
+                <!-- 分页控件 -->
+                <div id="tradePagination" class="flex items-center justify-between mt-4">
+                    <div class="text-sm text-gray-600">
+                        共 <span id="tradeTotal">0</span> 条记录
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button id="tradePrevPage" class="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <i class="fas fa-chevron-left"></i> 上一页
+                        </button>
+                        <span class="text-sm text-gray-700">
+                            第 <span id="tradeCurrentPage">1</span> / <span id="tradeTotalPages">1</span> 页
+                        </span>
+                        <button id="tradeNextPage" class="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                            下一页 <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -205,7 +222,7 @@
                             <i class="fas fa-chart-line mr-1"></i>返回当前分析
                         </button>
                     </div>
-                    <div class="overflow-y-auto max-h-80">
+                    <div class="overflow-y-auto max-h-80 mb-4">
                         <table class="w-full text-sm">
                             <thead>
                                 <tr class="border-b">
@@ -221,6 +238,23 @@
                             </tbody>
                         </table>
                     </div>
+                    <!-- AI分析历史记录分页控件 -->
+                    <div id="analysisPagination" class="flex items-center justify-between mt-4">
+                        <div class="text-sm text-gray-600">
+                            共 <span id="analysisTotal">0</span> 条记录
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button id="analysisPrevPage" class="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="fas fa-chevron-left"></i> 上一页
+                            </button>
+                            <span class="text-sm text-gray-700">
+                                第 <span id="analysisCurrentPage">1</span> / <span id="analysisTotalPages">1</span> 页
+                            </span>
+                            <button id="analysisNextPage" class="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                                下一页 <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -230,13 +264,62 @@
     <script>
         // 全局变量
         let priceChart, performanceChart;
+        
+        // 分页状态
+        let tradePageState = {
+            currentPage: 1,
+            pageSize: 10,
+            total: 0,
+            totalPages: 0
+        };
+        
+        let analysisPageState = {
+            currentPage: 1,
+            pageSize: 10,
+            total: 0,
+            totalPages: 0
+        };
 
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', function() {
             initializeCharts();
             loadData();
+            setupPaginationHandlers();
             setInterval(loadData, 5000); // 每5秒更新一次数据
         });
+        
+        // 设置分页事件处理器
+        function setupPaginationHandlers() {
+            // 交易记录分页
+            document.getElementById('tradePrevPage').addEventListener('click', function() {
+                if (tradePageState.currentPage > 1) {
+                    tradePageState.currentPage--;
+                    loadTradeHistory();
+                }
+            });
+            
+            document.getElementById('tradeNextPage').addEventListener('click', function() {
+                if (tradePageState.currentPage < tradePageState.totalPages) {
+                    tradePageState.currentPage++;
+                    loadTradeHistory();
+                }
+            });
+            
+            // AI分析历史记录分页
+            document.getElementById('analysisPrevPage').addEventListener('click', function() {
+                if (analysisPageState.currentPage > 1) {
+                    analysisPageState.currentPage--;
+                    loadAnalysisHistory();
+                }
+            });
+            
+            document.getElementById('analysisNextPage').addEventListener('click', function() {
+                if (analysisPageState.currentPage < analysisPageState.totalPages) {
+                    analysisPageState.currentPage++;
+                    loadAnalysisHistory();
+                }
+            });
+        }
 
         // 初始化图表
         function initializeCharts() {
@@ -291,18 +374,19 @@
         // 加载数据
         async function loadData() {
             try {
-                const [systemStatus, tradeHistory, performance, analysisHistory] = await Promise.all([
+                const [systemStatus, performance] = await Promise.all([
                     fetch('/api/system-status').then(r => r.json()),
-                    fetch('/api/trade-history').then(r => r.json()),
-                    fetch('/api/performance').then(r => r.json()),
-                    fetch('/api/ai-analysis-history').then(r => r.json())
+                    fetch('/api/performance').then(r => r.json())
                 ]);
 
                 updateSystemStatus(systemStatus);
-                updateTradeHistory(tradeHistory);
                 updatePerformance(performance);
-                updateCharts(tradeHistory, performance);
-                updateAnalysisHistory(analysisHistory);
+                
+                // 加载交易历史（使用分页）
+                loadTradeHistory();
+                
+                // 加载图表数据（使用全部数据）
+                loadChartData();
 
                 // 显示最后更新时间
                 document.getElementById('lastUpdate').textContent = 
@@ -314,6 +398,82 @@
                 document.getElementById('lastUpdate').textContent = 
                     '最后更新: 数据加载失败';
             }
+        }
+
+        // 加载交易历史（分页）
+        async function loadTradeHistory() {
+            try {
+                const response = await fetch(`/api/trade-history?page=${tradePageState.currentPage}&page_size=${tradePageState.pageSize}`);
+                const result = await response.json();
+                
+                // 更新分页状态
+                tradePageState.total = result.total || 0;
+                tradePageState.totalPages = result.total_pages || 0;
+                
+                // 更新UI
+                updateTradeHistory(result);
+                updateTradePagination();
+
+            } catch (error) {
+                console.error('加载交易历史失败:', error);
+            }
+        }
+
+        // 加载AI分析历史记录（分页）
+        async function loadAnalysisHistory() {
+            try {
+                const response = await fetch(`/api/ai-analysis-history?page=${analysisPageState.currentPage}&page_size=${analysisPageState.pageSize}`);
+                const result = await response.json();
+                
+                // 更新分页状态
+                analysisPageState.total = result.total || 0;
+                analysisPageState.totalPages = result.total_pages || 0;
+                
+                // 更新UI
+                updateAnalysisHistory(result);
+                updateAnalysisPagination();
+
+            } catch (error) {
+                console.error('加载AI分析历史失败:', error);
+            }
+        }
+
+        // 加载图表数据（需要全部数据）
+        async function loadChartData() {
+            try {
+                const tradeHistoryResponse = await fetch('/api/trade-history?page=1&page_size=100');
+                const tradeHistoryResult = await tradeHistoryResponse.json();
+                const allTrades = tradeHistoryResult.data || [];
+                
+                const performanceResponse = await fetch('/api/performance');
+                const performance = await performanceResponse.json();
+                
+                updateCharts(allTrades, performance);
+            } catch (error) {
+                console.error('加载图表数据失败:', error);
+            }
+        }
+
+        // 更新交易记录分页UI
+        function updateTradePagination() {
+            document.getElementById('tradeTotal').textContent = tradePageState.total;
+            document.getElementById('tradeCurrentPage').textContent = tradePageState.currentPage;
+            document.getElementById('tradeTotalPages').textContent = tradePageState.totalPages || 1;
+            
+            // 更新按钮状态
+            document.getElementById('tradePrevPage').disabled = tradePageState.currentPage <= 1;
+            document.getElementById('tradeNextPage').disabled = tradePageState.currentPage >= (tradePageState.totalPages || 1);
+        }
+
+        // 更新AI分析历史分页UI
+        function updateAnalysisPagination() {
+            document.getElementById('analysisTotal').textContent = analysisPageState.total;
+            document.getElementById('analysisCurrentPage').textContent = analysisPageState.currentPage;
+            document.getElementById('analysisTotalPages').textContent = analysisPageState.totalPages || 1;
+            
+            // 更新按钮状态
+            document.getElementById('analysisPrevPage').disabled = analysisPageState.currentPage <= 1;
+            document.getElementById('analysisNextPage').disabled = analysisPageState.currentPage >= (analysisPageState.totalPages || 1);
         }
 
         // 更新系统状态
@@ -392,14 +552,13 @@
         }
 
         // 更新交易记录
-        function updateTradeHistory(trades) {
+        function updateTradeHistory(result) {
             const tbody = document.getElementById('tradeHistory');
             tbody.innerHTML = '';
 
-            // 只显示最近10条记录
-            const recentTrades = trades.slice(-10).reverse();
+            const trades = result.data || [];
 
-            recentTrades.forEach(trade => {
+            trades.forEach(trade => {
                 const row = document.createElement('tr');
                 row.className = 'border-b';
                 
@@ -409,9 +568,18 @@
                 const pnlClass = trade.pnl > 0 ? 'text-green-600' : 
                                 trade.pnl < 0 ? 'text-red-600' : 'text-gray-600';
 
+                // 格式化时间戳，显示日期和时间
+                const timestamp = trade.timestamp ? 
+                    new Date(trade.timestamp).toLocaleString('zh-CN', {
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }) : '--';
+
                 row.innerHTML = `
-                    <td class="py-2">${trade.timestamp ? trade.timestamp.split(' ')[1] : '--'}</td>
-                    <td class="py-2 ${signalClass}">${trade.signal || '--'}</td>
+                    <td class="py-2 text-xs">${timestamp}</td>
+                    <td class="py-2 ${signalClass} font-medium">${trade.signal || '--'}</td>
                     <td class="py-2">${trade.price ? '$' + trade.price.toLocaleString() : '--'}</td>
                     <td class="py-2 ${pnlClass}">${trade.pnl ? trade.pnl.toFixed(2) + ' USDT' : '--'}</td>
                 `;
@@ -419,7 +587,7 @@
                 tbody.appendChild(row);
             });
 
-            if (recentTrades.length === 0) {
+            if (trades.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-gray-500">暂无交易记录</td></tr>';
             }
         }
@@ -446,7 +614,7 @@
 
         // 更新图表
         function updateCharts(trades, performance) {
-            // 更新价格图表
+            // 更新价格图表（使用全部交易数据）
             const priceData = trades.map((trade, index) => ({
                 x: index,
                 y: trade.price
@@ -467,14 +635,13 @@
         }
 
         // 更新AI分析历史记录
-        function updateAnalysisHistory(history) {
+        function updateAnalysisHistory(result) {
             const tbody = document.getElementById('historyTable');
             tbody.innerHTML = '';
 
-            // 只显示最近20条记录，按时间倒序
-            const recentHistory = history.slice(-20).reverse();
+            const history = result.data || [];
 
-            recentHistory.forEach(record => {
+            history.forEach(record => {
                 const row = document.createElement('tr');
                 row.className = 'border-b hover:bg-gray-50';
                 
@@ -485,7 +652,14 @@
                                       record.confidence === 'MEDIUM' ? 'text-yellow-600' : 'text-red-600';
 
                 // 格式化时间
-                const timestamp = record.timestamp ? new Date(record.timestamp).toLocaleString('zh-CN') : '--';
+                const timestamp = record.timestamp ? 
+                    new Date(record.timestamp).toLocaleString('zh-CN', {
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    }) : '--';
                 
                 // 截断决策理由，显示前30个字符
                 const shortReason = record.reason ? 
@@ -502,7 +676,7 @@
                 tbody.appendChild(row);
             });
 
-            if (recentHistory.length === 0) {
+            if (history.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-500">暂无分析记录</td></tr>';
             }
         }
@@ -512,6 +686,9 @@
             document.getElementById('currentAnalysis').classList.add('hidden');
             document.getElementById('analysisHistory').classList.remove('hidden');
             this.classList.add('hidden');
+            // 切换到历史记录视图时，加载第一页数据
+            analysisPageState.currentPage = 1;
+            loadAnalysisHistory();
         });
 
         document.getElementById('toggleCurrent').addEventListener('click', function() {

@@ -245,21 +245,50 @@ class DataManager:
         # 更新绩效数据
         self._update_performance(trade_record)
     
-    def get_trade_history(self):
-        """获取交易历史"""
+    def get_trade_history(self, page: int = 1, page_size: int = 10):
+        """获取交易历史（支持分页）
+        
+        Args:
+            page: 页码，从1开始
+            page_size: 每页数量
+            
+        Returns:
+            dict: {
+                'data': 交易记录列表,
+                'total': 总记录数,
+                'page': 当前页码,
+                'page_size': 每页数量,
+                'total_pages': 总页数
+            }
+        """
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        # 获取总记录数
+        cursor.execute('SELECT COUNT(*) FROM trades')
+        total = cursor.fetchone()[0]
+        
+        # 计算分页
+        offset = (page - 1) * page_size
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        
+        # 获取分页数据
         cursor.execute('''
             SELECT * FROM trades 
             ORDER BY created_at DESC 
-            LIMIT 100
-        ''')
+            LIMIT ? OFFSET ?
+        ''', (page_size, offset))
         
         rows = cursor.fetchall()
         conn.close()
         
-        return [dict(row) for row in rows]
+        return {
+            'data': [dict(row) for row in rows],
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages
+        }
     
     # ========== 绩效数据管理 ==========
     
@@ -455,21 +484,50 @@ class DataManager:
         conn.commit()
         conn.close()
     
-    def get_ai_analysis_history(self):
-        """获取AI分析历史记录"""
+    def get_ai_analysis_history(self, page: int = 1, page_size: int = 10):
+        """获取AI分析历史记录（支持分页）
+        
+        Args:
+            page: 页码，从1开始
+            page_size: 每页数量
+            
+        Returns:
+            dict: {
+                'data': AI分析记录列表,
+                'total': 总记录数,
+                'page': 当前页码,
+                'page_size': 每页数量,
+                'total_pages': 总页数
+            }
+        """
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        # 获取总记录数
+        cursor.execute('SELECT COUNT(*) FROM ai_analysis_history')
+        total = cursor.fetchone()[0]
+        
+        # 计算分页
+        offset = (page - 1) * page_size
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        
+        # 获取分页数据
         cursor.execute('''
             SELECT analysis_data FROM ai_analysis_history 
             ORDER BY created_at DESC 
-            LIMIT 50
-        ''')
+            LIMIT ? OFFSET ?
+        ''', (page_size, offset))
         
         rows = cursor.fetchall()
         conn.close()
         
-        return [json.loads(row['analysis_data']) for row in rows]
+        return {
+            'data': [json.loads(row['analysis_data']) for row in rows],
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages
+        }
 
 # 全局数据管理器实例
 data_manager = DataManager()

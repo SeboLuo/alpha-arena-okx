@@ -23,9 +23,16 @@ def get_system_status():
 
 @app.route('/api/trade-history')
 def get_trade_history():
-    """获取交易历史"""
-    trades = data_manager.get_trade_history()
-    return jsonify(trades)
+    """获取交易历史（支持分页）"""
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 10, type=int)
+    
+    # 限制每页最大数量
+    page_size = min(page_size, 100)
+    page = max(page, 1)
+    
+    result = data_manager.get_trade_history(page=page, page_size=page_size)
+    return jsonify(result)
 
 @app.route('/api/performance')
 def get_performance():
@@ -75,10 +82,17 @@ def update_settings():
 
 @app.route('/api/ai-analysis-history')
 def get_ai_analysis_history():
-    """获取AI分析历史记录"""
+    """获取AI分析历史记录（支持分页）"""
     try:
-        analysis_history = data_manager.get_ai_analysis_history()
-        return jsonify(analysis_history)
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', 10, type=int)
+        
+        # 限制每页最大数量
+        page_size = min(page_size, 100)
+        page = max(page, 1)
+        
+        result = data_manager.get_ai_analysis_history(page=page, page_size=page_size)
+        return jsonify(result)
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
