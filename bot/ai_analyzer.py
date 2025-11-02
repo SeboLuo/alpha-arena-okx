@@ -441,13 +441,13 @@ def analyze_with_deepseek(price_data, position_data=None, account_data=None):
         # 7. 适配输出格式（新格式→旧格式）
         if signal_data:
             # 7.1 适配signal字段：新格式可能是 "buy_to_enter" | "sell_to_enter" | "hold" | "close"
-            # 需要转换为旧的 "BUY" | "SELL" | "HOLD"
+            # 需要转换为 "BUY" | "SELL" | "HOLD" | "CLOSE"
             if 'signal' in signal_data:
                 signal_mapping = {
                     'buy_to_enter': 'BUY',
                     'sell_to_enter': 'SELL',
                     'hold': 'HOLD',
-                    'close': 'HOLD'  # close也视为HOLD，后续由交易执行器处理
+                    'close': 'CLOSE'  # close信号需要平掉当前持仓
                 }
                 original_signal = signal_data['signal']
                 signal_data['signal'] = signal_mapping.get(original_signal.lower(), original_signal.upper())

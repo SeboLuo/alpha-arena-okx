@@ -165,6 +165,24 @@ def execute_intelligent_trade(signal_data, price_data):
             position_side = current_position['side'] if current_position else None
             trade_amount = 0
         
+        elif signal_data['signal'] == 'CLOSE':
+            # CLOSE信号：完全平掉当前持仓（如果有）
+            if current_position and current_position['size'] > 0:
+                print(f"[模拟] CLOSE信号：平仓 {current_position['size']:.2f} 张 ({current_position['side']})")
+                
+                position_action = 'close'
+                position_side = current_position['side']
+                trade_amount = current_position['size']
+                
+                # 计算并执行平仓
+                pnl = _update_sim_position('close', current_position['side'], current_position['size'], current_price)
+                print(f"[模拟] 平仓完成，盈亏: {pnl:+.2f} USDT")
+            else:
+                print("[模拟] CLOSE信号：当前无持仓，无需操作")
+                position_action = 'hold'
+                position_side = None
+                trade_amount = 0
+        
         print("[模拟] 智能交易执行成功")
         
         # 获取交易后的持仓状态

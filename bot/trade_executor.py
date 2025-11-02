@@ -191,6 +191,42 @@ def execute_intelligent_trade(signal_data, price_data):
         elif signal_data['signal'] == 'HOLD':
             print("建议观望，不执行交易")
             return
+        
+        elif signal_data['signal'] == 'CLOSE':
+            # CLOSE信号：完全平掉当前持仓（如果有）
+            if current_position and current_position['size'] > 0:
+                print(f"CLOSE信号：平仓 {current_position['size']:.2f} 张 ({current_position['side']})")
+                try:
+                    # 平仓：与当前持仓方向相反的下单
+                    if current_position['side'] == 'long':
+                        # 平多仓：下卖单
+                        order = exchange.create_market_order(
+                            TRADE_CONFIG['symbol'],
+                            'sell',
+                            current_position['size'],
+                            None,
+                            None,
+                            {'tdMode': 'cross'}  # 全仓模式
+                        )
+                    else:  # short
+                        # 平空仓：下买单
+                        order = exchange.create_market_order(
+                            TRADE_CONFIG['symbol'],
+                            'buy',
+                            current_position['size'],
+                            None,
+                            None,
+                            {'tdMode': 'cross'}  # 全仓模式
+                        )
+                    print(f"✅ 平仓成功: {order}")
+                except Exception as e:
+                    print(f"❌ 平仓失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return
+            else:
+                print("CLOSE信号：当前无持仓，无需操作")
+            return
 
         print("智能交易执行成功")
         time.sleep(2)
