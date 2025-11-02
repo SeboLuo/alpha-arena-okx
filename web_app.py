@@ -3,7 +3,18 @@ from flask_cors import CORS
 import json
 import os
 from datetime import datetime
-from data_manager import data_manager
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# 根据TEST_MODE环境变量选择数据管理器
+TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true'
+TRADE_MODE = 'simulation' if TEST_MODE else 'real'
+
+if TEST_MODE:
+    from sim_data_manager import sim_data_manager as data_manager
+else:
+    from data_manager import data_manager
 
 # 设置模板目录路径
 template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
@@ -95,6 +106,15 @@ def get_ai_analysis_history():
         return jsonify(result)
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/trade-mode')
+def get_trade_mode():
+    """获取当前交易模式（模拟/实盘）"""
+    return jsonify({
+        'mode': TRADE_MODE,
+        'mode_name': '模拟交易' if TRADE_MODE == 'simulation' else '实盘交易',
+        'is_simulation': TRADE_MODE == 'simulation'
+    })
 
 if __name__ == '__main__':
     # 确保模板目录存在

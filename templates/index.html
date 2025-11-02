@@ -41,6 +41,9 @@
                     <h1 class="text-2xl font-bold">OKX BTC交易机器人</h1>
                 </div>
                 <div class="flex items-center space-x-4">
+                    <span id="tradeMode" class="px-3 py-1 rounded-full text-white text-sm font-semibold">
+                        <i class="fas fa-circle mr-1"></i><span id="modeName">--</span>
+                    </span>
                     <span id="status" class="px-3 py-1 rounded-full bg-green-500 text-white text-sm">
                         <i class="fas fa-circle mr-1"></i>运行中
                     </span>
@@ -374,11 +377,15 @@
         // 加载数据
         async function loadData() {
             try {
-                const [systemStatus, performance] = await Promise.all([
+                const [systemStatus, performance, tradeMode] = await Promise.all([
                     fetch('/api/system-status').then(r => r.json()),
-                    fetch('/api/performance').then(r => r.json())
+                    fetch('/api/performance').then(r => r.json()),
+                    fetch('/api/trade-mode').then(r => r.json())
                 ]);
 
+                // 更新交易模式标识
+                updateTradeMode(tradeMode);
+                
                 updateSystemStatus(systemStatus);
                 updatePerformance(performance);
                 
@@ -397,6 +404,24 @@
                 // 显示错误信息
                 document.getElementById('lastUpdate').textContent = 
                     '最后更新: 数据加载失败';
+            }
+        }
+
+        // 更新交易模式标识
+        function updateTradeMode(data) {
+            const modeElement = document.getElementById('tradeMode');
+            const modeNameElement = document.getElementById('modeName');
+            
+            if (data.is_simulation) {
+                // 模拟交易 - 橙色/黄色标识
+                modeElement.className = 'px-3 py-1 rounded-full bg-yellow-500 text-white text-sm font-semibold';
+                modeNameElement.textContent = '模拟交易';
+                modeElement.title = '当前为模拟交易模式，不会进行真实下单';
+            } else {
+                // 实盘交易 - 红色标识（警示）
+                modeElement.className = 'px-3 py-1 rounded-full bg-red-500 text-white text-sm font-semibold';
+                modeNameElement.textContent = '实盘交易';
+                modeElement.title = '当前为实盘交易模式，请谨慎操作';
             }
         }
 
