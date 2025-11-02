@@ -46,6 +46,10 @@ def get_current_position():
             total_value = sum(p['price'] * p['amount'] for p in long_entry_prices)
             avg_entry_price = total_value / total_long if total_long > 0 else 0
             
+            # 提取币种名称（BTC/USDT:USDT -> BTC）
+            symbol_parts = TRADE_CONFIG['symbol'].split('/')
+            coin_symbol = symbol_parts[0] if len(symbol_parts) > 0 else 'BTC'
+            
             # 获取当前价格（需要从外部传入，这里先返回基本信息）
             return {
                 'side': 'long',
@@ -53,12 +57,16 @@ def get_current_position():
                 'entry_price': avg_entry_price,
                 'unrealized_pnl': 0,  # 需要当前价格才能计算，后续在trade_executor中更新
                 'leverage': TRADE_CONFIG['leverage'],
-                'symbol': TRADE_CONFIG['symbol']
+                'symbol': coin_symbol  # 返回币种名称（如BTC），而不是完整交易对
             }
         elif total_short > 0:
             # 计算加权平均成本
             total_value = sum(p['price'] * p['amount'] for p in short_entry_prices)
             avg_entry_price = total_value / total_short if total_short > 0 else 0
+            
+            # 提取币种名称（BTC/USDT:USDT -> BTC）
+            symbol_parts = TRADE_CONFIG['symbol'].split('/')
+            coin_symbol = symbol_parts[0] if len(symbol_parts) > 0 else 'BTC'
             
             return {
                 'side': 'short',
@@ -66,7 +74,7 @@ def get_current_position():
                 'entry_price': avg_entry_price,
                 'unrealized_pnl': 0,  # 需要当前价格才能计算，后续在trade_executor中更新
                 'leverage': TRADE_CONFIG['leverage'],
-                'symbol': TRADE_CONFIG['symbol']
+                'symbol': coin_symbol  # 返回币种名称（如BTC），而不是完整交易对
             }
         
         return None

@@ -231,8 +231,15 @@ def _prepare_system_config():
     }
 
 
-def _prepare_user_prompt_params(price_data, coin_data):
-    """准备用户提示词参数"""
+def _prepare_user_prompt_params(price_data, coin_data, position_data=None, account_data=None):
+    """准备用户提示词参数
+    
+    Args:
+        price_data: 价格数据
+        coin_data: 币种数据
+        position_data: 可选的持仓数据（用于模拟模式），如果提供则使用此数据而不是调用get_current_position()
+        account_data: 可选的账户数据（用于模拟模式），如果提供则使用此数据而不是调用exchange.fetch_balance()
+    """
     global _start_time, _invocation_count
     
     # 初始化开始时间
@@ -246,11 +253,22 @@ def _prepare_user_prompt_params(price_data, coin_data):
     _invocation_count += 1
     
     # 获取持仓信息
-    current_pos = get_current_position()
+    if position_data is not None:
+        # 使用提供的持仓数据（模拟模式）
+        current_pos = position_data
+    else:
+        # 从真实交易所获取持仓（真实交易模式）
+        current_pos = get_current_position()
+    
     positions = []
     if current_pos:
+        # 从完整交易对中提取币种名称（如 BTC/USDT:USDT -> BTC）
+        raw_symbol = current_pos.get('symbol', 'BTC/USDT:USDT')
+        symbol_parts = raw_symbol.split('/')
+        coin_symbol = symbol_parts[0] if len(symbol_parts) > 0 else 'BTC'
+        
         positions = [{
-            'symbol': current_pos.get('symbol', 'BTC'),
+            'symbol': coin_symbol,  # 使用币种名称（如BTC），而不是完整交易对
             'side': current_pos.get('side', 'long'),
             'size': current_pos.get('size', 0),
             'entry_price': current_pos.get('entry_price', 0),
@@ -260,18 +278,27 @@ def _prepare_user_prompt_params(price_data, coin_data):
         }]
     
     # 获取账户信息
-    try:
-        balance = exchange.fetch_balance()
-        available_cash = float(balance['USDT'].get('free', 0))
-        total_value = float(balance['USDT'].get('total', 0))
-        
-        # 计算总回报（简化处理）
+    if account_data is not None:
+        # 使用提供的账户数据（模拟模式）
+        # available_cash: 可用余额（总余额 - 占用保证金）
+        # current_account_value: 账户净值（总余额 + 未实现盈亏）
+        available_cash = float(account_data.get('available_cash', account_data.get('balance', 0)))
+        current_account_value = float(account_data.get('equity', account_data.get('balance', 0)))
         current_total_return_percent = 0.0  # 可以从历史记录计算
-        current_account_value = total_value
-    except:
-        available_cash = 0.0
-        current_account_value = 0.0
-        current_total_return_percent = 0.0
+    else:
+        # 从真实交易所获取账户信息（真实交易模式）
+        try:
+            balance = exchange.fetch_balance()
+            available_cash = float(balance['USDT'].get('free', 0))
+            total_value = float(balance['USDT'].get('total', 0))
+            
+            # 计算总回报（简化处理）
+            current_total_return_percent = 0.0  # 可以从历史记录计算
+            current_account_value = total_value
+        except:
+            available_cash = 0.0
+            current_account_value = 0.0
+            current_total_return_percent = 0.0
     
     return {
         'minutes_elapsed': int(elapsed),
@@ -285,8 +312,14 @@ def _prepare_user_prompt_params(price_data, coin_data):
     }
 
 
-def analyze_with_deepseek(price_data):
-    """使用DeepSeek分析市场并生成交易信号（使用新模板系统）"""
+def analyze_with_deepseek(price_data, position_data=None, account_data=None):
+    """使用DeepSeek分析市场并生成交易信号（使用新模板系统）
+    
+    Args:
+        price_data: 价格数据
+        position_data: 可选的持仓数据（用于模拟模式）
+        account_data: 可选的账户数据（用于模拟模式）
+    """
     # 在函数开始时初始化提示词变量（用于异常时保存）
     system_prompt = ''
     user_prompt = ''
@@ -300,8 +333,8 @@ def analyze_with_deepseek(price_data):
         # 2. 转换币种数据
         coin_data = _convert_price_data_to_coin_data(price_data)
         
-        # 3. 准备用户提示词参数
-        user_params = _prepare_user_prompt_params(price_data, coin_data)
+        # 3. 准备用户提示词参数（传递模拟模式的数据）
+        user_params = _prepare_user_prompt_params(price_data, coin_data, position_data, account_data)
         
         # 4. 构建用户提示词
         user_prompt = _builder.build_user_prompt(**user_params)
@@ -424,8 +457,15 @@ def analyze_with_deepseek(price_data):
         return fallback_signal
 
 
-def analyze_with_deepseek_with_retry(price_data, max_retries=2):
-    """带重试的DeepSeek分析"""
+def analyze_with_deepseek_with_retry(price_data, max_retries=2, position_data=None, account_data=None):
+    """带重试的DeepSeek分析
+    
+    Args:
+        price_data: 价格数据
+        max_retries: 最大重试次数
+        position_data: 可选的持仓数据（用于模拟模式）
+        account_data: 可选的账户数据（用于模拟模式）
+    """
     # 保存最后一次的提示词（用于fallback时保存）
     last_system_prompt = None
     last_user_prompt = None
@@ -433,7 +473,7 @@ def analyze_with_deepseek_with_retry(price_data, max_retries=2):
     
     for attempt in range(max_retries):
         try:
-            signal_data = analyze_with_deepseek(price_data)
+            signal_data = analyze_with_deepseek(price_data, position_data, account_data)
             
             # 保存提示词和响应（即使是fallback也保存）
             if signal_data:

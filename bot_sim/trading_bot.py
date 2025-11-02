@@ -42,19 +42,26 @@ def trading_bot():
     # 2. 获取模拟账户信息（从数据库）
     try:
         sim_balance = sim_data_manager.get_sim_balance()
+        base_balance = sim_balance['balance']  # 基础余额（总余额）
+        leverage = TRADE_CONFIG['leverage']
+        
         account_info = {
-            'balance': sim_balance['balance'],
-            'equity': sim_balance['equity'],
-            'leverage': TRADE_CONFIG['leverage']
+            'balance': base_balance,
+            'leverage': leverage
         }
-        print(f"[模拟] 账户余额: {account_info['balance']:.2f} USDT")
+        print(f"[模拟] 账户总余额: {base_balance:.2f} USDT")
     except Exception as e:
         print(f"[模拟] 获取账户信息失败: {e}")
         account_info = None
+        base_balance = 0
+        leverage = TRADE_CONFIG['leverage']
 
     # 3. 获取当前模拟持仓（从数据库计算）
     current_position = get_current_position()
     position_info = None
+    unrealized_pnl = 0
+    used_margin = 0  # 占用保证金
+    
     if current_position:
         # 计算未实现盈亏（需要当前价格）
         if current_position['side'] == 'long':
@@ -62,16 +69,47 @@ def trading_bot():
         else:  # short
             unrealized_pnl = (current_position['entry_price'] - price_data['price']) * current_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
         
+        # 计算占用保证金：合约价值 / 杠杆
+        # 合约价值 = 持仓数量 * 当前价格 * 合约乘数
+        position_value = current_position['size'] * price_data['price'] * TRADE_CONFIG.get('contract_size', 0.01)
+        used_margin = position_value / leverage
+        
         position_info = {
             'side': current_position['side'],
             'size': current_position['size'],
             'entry_price': current_position['entry_price'],
             'unrealized_pnl': unrealized_pnl
         }
-        print(f"[模拟] 当前持仓: {position_info['side']} {position_info['size']:.2f} 张, 未实现盈亏: {unrealized_pnl:+.2f} USDT")
+        print(f"[模拟] 当前持仓: {position_info['side']} {position_info['size']:.2f} 张")
+        print(f"[模拟] 占用保证金: {used_margin:.2f} USDT, 未实现盈亏: {unrealized_pnl:+.2f} USDT")
+    
+    # 计算账户净值（Equity）= 总余额 + 未实现盈亏
+    equity = base_balance + unrealized_pnl
+    # 计算可用余额（Available Cash）= 总余额 - 占用保证金
+    available_cash = base_balance - used_margin
+    
+    if account_info:
+        account_info['equity'] = equity
+        account_info['available_cash'] = available_cash
+        account_info['used_margin'] = used_margin
+        print(f"[模拟] 账户净值: {equity:.2f} USDT, 可用余额: {available_cash:.2f} USDT")
 
     # 4. 使用DeepSeek分析（共享AI分析，带重试）
-    signal_data = analyze_with_deepseek_with_retry(price_data)
+    # 传递模拟持仓和账户数据给AI分析器，以便在提示词中正确显示
+    sim_account_info = {
+        'balance': base_balance,
+        'equity': equity,
+        'available_cash': available_cash,
+        'used_margin': used_margin
+    } if account_info else None
+    
+    position_info_for_ai = position_info if position_info else None
+    
+    signal_data = analyze_with_deepseek_with_retry(
+        price_data, 
+        position_data=position_info_for_ai,
+        account_data=sim_account_info
+    )
 
     if signal_data.get('is_fallback', False):
         print("[模拟] ⚠️ 使用备用交易信号")
@@ -107,28 +145,42 @@ def trading_bot():
     try:
         # 重新获取最新的模拟账户余额（交易后可能已变化）
         updated_sim_balance = sim_data_manager.get_sim_balance()
-        updated_account_info = {
-            'balance': updated_sim_balance['balance'],
-            'equity': updated_sim_balance['equity'],
-            'leverage': TRADE_CONFIG['leverage']
-        }
+        updated_base_balance = updated_sim_balance['balance']
         
         # 重新获取最新的持仓（交易后可能已变化）
         updated_position = get_current_position()
         updated_position_info = None
+        updated_unrealized_pnl = 0
+        updated_used_margin = 0
+        
         if updated_position:
             # 重新计算未实现盈亏
             if updated_position['side'] == 'long':
-                unrealized_pnl = (price_data['price'] - updated_position['entry_price']) * updated_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+                updated_unrealized_pnl = (price_data['price'] - updated_position['entry_price']) * updated_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
             else:  # short
-                unrealized_pnl = (updated_position['entry_price'] - price_data['price']) * updated_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+                updated_unrealized_pnl = (updated_position['entry_price'] - price_data['price']) * updated_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+            
+            # 重新计算占用保证金
+            updated_position_value = updated_position['size'] * price_data['price'] * TRADE_CONFIG.get('contract_size', 0.01)
+            updated_used_margin = updated_position_value / TRADE_CONFIG['leverage']
             
             updated_position_info = {
                 'side': updated_position['side'],
                 'size': updated_position['size'],
                 'entry_price': updated_position['entry_price'],
-                'unrealized_pnl': unrealized_pnl
+                'unrealized_pnl': updated_unrealized_pnl
             }
+        
+        # 重新计算账户净值和可用余额
+        updated_equity = updated_base_balance + updated_unrealized_pnl
+        updated_available_cash = updated_base_balance - updated_used_margin
+        
+        updated_account_info = {
+            'balance': updated_base_balance,
+            'equity': updated_equity,
+            'available_cash': updated_available_cash,
+            'leverage': TRADE_CONFIG['leverage']
+        }
         
         # 更新模拟系统状态到Web界面（使用最新的账户和持仓信息）
         sim_data_manager.update_system_status(

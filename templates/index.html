@@ -73,9 +73,9 @@
             <div class="bg-white rounded-xl shadow-lg p-6 card-hover">
                 <div class="flex items-center justify-between">
                     <div>
-                        <h3 class="text-lg font-semibold text-gray-700">账户余额</h3>
+                        <h3 class="text-lg font-semibold text-gray-700">账户净值</h3>
                         <p id="accountBalance" class="text-3xl font-bold text-gray-900 mt-2">--</p>
-                        <p class="text-sm text-gray-500 mt-1">可用资金</p>
+                        <p id="availableCash" class="text-sm text-gray-500 mt-1">可用资金: --</p>
                     </div>
                     <i class="fas fa-wallet text-3xl text-green-500"></i>
                 </div>
@@ -101,7 +101,7 @@
                     <div>
                         <h3 class="text-lg font-semibold text-gray-700">当前持仓</h3>
                         <p id="positionInfo" class="text-2xl font-bold text-gray-900 mt-2">无持仓</p>
-                        <p id="positionPnl" class="text-sm mt-1">盈亏: --</p>
+                        <p id="positionPnl" class="text-sm mt-1">未实现盈亏: --</p>
                     </div>
                     <i class="fas fa-chart-line text-3xl text-blue-500"></i>
                 </div>
@@ -523,12 +523,32 @@
                     document.getElementById('btcChange').textContent = '--';
                 }
 
-                // 更新账户余额
-                if (data.account_info && data.account_info.balance) {
-                    document.getElementById('accountBalance').textContent = 
-                        data.account_info.balance.toFixed(2) + ' USDT';
+                // 更新账户净值（显示账户净值，包含未实现盈亏）
+                if (data.account_info) {
+                    // 显示equity（账户净值），如果没有则显示balance
+                    const accountValue = data.account_info.equity !== undefined ? 
+                        data.account_info.equity : data.account_info.balance;
+                    
+                    if (accountValue !== undefined && accountValue !== null) {
+                        document.getElementById('accountBalance').textContent = 
+                            accountValue.toFixed(2) + ' USDT';
+                    } else {
+                        document.getElementById('accountBalance').textContent = '-- USDT';
+                    }
+                    
+                    // 显示可用资金（可用余额）
+                    const availableCash = data.account_info.available_cash !== undefined ?
+                        data.account_info.available_cash : data.account_info.balance;
+                    
+                    if (availableCash !== undefined && availableCash !== null) {
+                        document.getElementById('availableCash').textContent = 
+                            `可用资金: ${availableCash.toFixed(2)} USDT`;
+                    } else {
+                        document.getElementById('availableCash').textContent = '可用资金: --';
+                    }
                 } else {
                     document.getElementById('accountBalance').textContent = '-- USDT';
+                    document.getElementById('availableCash').textContent = '可用资金: --';
                 }
 
                 // 更新AI信号
@@ -562,14 +582,14 @@
                     document.getElementById('positionInfo').textContent = 
                         `${side}仓 ${positionSize.toFixed(4)} 张`;
                     document.getElementById('positionPnl').textContent = 
-                        `盈亏: ${(data.position.unrealized_pnl || 0).toFixed(2)} USDT`;
+                        `未实现盈亏: ${(data.position.unrealized_pnl || 0).toFixed(2)} USDT`;
                     
                     const pnlElement = document.getElementById('positionPnl');
                     pnlElement.className = data.position.unrealized_pnl >= 0 ? 
                         'text-sm mt-1 text-green-600' : 'text-sm mt-1 text-red-600';
                 } else {
                     document.getElementById('positionInfo').textContent = '无持仓';
-                    document.getElementById('positionPnl').textContent = '盈亏: 0 USDT';
+                    document.getElementById('positionPnl').textContent = '未实现盈亏: 0 USDT';
                     document.getElementById('positionPnl').className = 'text-sm mt-1 text-gray-600';
                 }
             } catch (error) {

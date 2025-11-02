@@ -42,9 +42,14 @@ def trading_bot():
     # 2. 获取账户信息
     try:
         balance = exchange.fetch_balance()
+        # OKX返回的数据：
+        # free: 可用余额（已扣除保证金）
+        # total: 账户总值（包含未实现盈亏）
+        # used: 占用保证金（部分交易所提供）
         account_info = {
-            'balance': float(balance['USDT'].get('free', 0)),
-            'equity': float(balance['USDT'].get('total', 0)),
+            'balance': float(balance['USDT'].get('total', 0)),  # 使用total作为基础余额（总资产）
+            'equity': float(balance['USDT'].get('total', 0)),   # 账户净值（OKX的total已包含未实现盈亏）
+            'available_cash': float(balance['USDT'].get('free', 0)),  # 可用余额
             'leverage': TRADE_CONFIG['leverage']
         }
     except Exception as e:
@@ -139,8 +144,9 @@ def main():
         # 获取初始账户信息
         balance = exchange.fetch_balance()
         initial_account = {
-            'balance': float(balance['USDT'].get('free', 0)),
-            'equity': float(balance['USDT'].get('total', 0)),
+            'balance': float(balance['USDT'].get('total', 0)),  # 使用total作为基础余额
+            'equity': float(balance['USDT'].get('total', 0)),   # 账户净值
+            'available_cash': float(balance['USDT'].get('free', 0)),  # 可用余额
             'leverage': TRADE_CONFIG['leverage']
         }
         
