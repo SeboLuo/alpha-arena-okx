@@ -128,7 +128,19 @@ class SimDataManager:
         except:
             pass
         
-        # 6. 模拟账户余额表（用于跟踪模拟账户资金）
+        # 6. 模拟系统统计表（用于记录累计运行时间和调用次数）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sim_system_stats (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                first_start_time TEXT NOT NULL,
+                total_minutes_elapsed REAL DEFAULT 0,
+                total_invocation_count INTEGER DEFAULT 0,
+                last_update_time TEXT NOT NULL,
+                UNIQUE(id)
+            )
+        ''')
+        
+        # 7. 模拟账户余额表（用于跟踪模拟账户资金）
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS sim_account (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -163,6 +175,16 @@ class SimDataManager:
                                        daily_pnl, monthly_pnl, last_updated)
                 VALUES (1, 0, 0, 0, 0, '{}', '{}', ?)
             ''', (datetime.now().isoformat(),))
+        
+        # 初始化模拟系统统计数据
+        cursor.execute('SELECT COUNT(*) FROM sim_system_stats')
+        if cursor.fetchone()[0] == 0:
+            now = datetime.now().isoformat()
+            cursor.execute('''
+                INSERT INTO sim_system_stats (id, first_start_time, total_minutes_elapsed, 
+                                            total_invocation_count, last_update_time)
+                VALUES (1, ?, 0, 0, ?)
+            ''', (now, now))
         
         # 初始化模拟账户（如果不存在，从配置中读取初始余额）
         cursor.execute('SELECT COUNT(*) FROM sim_account')
@@ -667,6 +689,79 @@ class SimDataManager:
             'page_size': page_size,
             'total_pages': total_pages
         }
+    
+    # ========== 系统统计管理 ==========
+    
+    def get_system_stats(self):
+        """获取模拟系统统计数据（累计时间、调用次数）
+        
+        Returns:
+            dict: {
+                'first_start_time': str,  # 首次启动时间
+                'total_minutes_elapsed': float,  # 累计分钟数
+                'total_invocation_count': int,  # 总调用次数
+                'last_update_time': str  # 最后更新时间
+            }
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM sim_system_stats WHERE id = 1')
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return {
+                'first_start_time': row['first_start_time'],
+                'total_minutes_elapsed': row['total_minutes_elapsed'] or 0,
+                'total_invocation_count': row['total_invocation_count'] or 0,
+                'last_update_time': row['last_update_time']
+            }
+        else:
+            # 如果不存在，初始化
+            now = datetime.now().isoformat()
+            return {
+                'first_start_time': now,
+                'total_minutes_elapsed': 0,
+                'total_invocation_count': 0,
+                'last_update_time': now
+            }
+    
+    def update_system_stats(self, minutes_elapsed, invocation_count):
+        """更新模拟系统统计数据
+        
+        Args:
+            minutes_elapsed: 累计运行分钟数
+            invocation_count: 总调用次数
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        now = datetime.now().isoformat()
+        
+        # 检查是否存在
+        cursor.execute('SELECT COUNT(*) FROM sim_system_stats WHERE id = 1')
+        exists = cursor.fetchone()[0] > 0
+        
+        if exists:
+            # 更新现有记录
+            cursor.execute('''
+                UPDATE sim_system_stats 
+                SET total_minutes_elapsed = ?, 
+                    total_invocation_count = ?, 
+                    last_update_time = ?
+                WHERE id = 1
+            ''', (minutes_elapsed, invocation_count, now))
+        else:
+            # 创建新记录
+            cursor.execute('''
+                INSERT INTO sim_system_stats (id, first_start_time, total_minutes_elapsed, 
+                                            total_invocation_count, last_update_time)
+                VALUES (1, ?, ?, ?, ?)
+            ''', (now, minutes_elapsed, invocation_count, now))
+        
+        conn.commit()
+        conn.close()
 
 # 全局模拟数据管理器实例
 sim_data_manager = SimDataManager()

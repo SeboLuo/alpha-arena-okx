@@ -11,7 +11,10 @@ from .position_manager import get_current_position
 from .utils import safe_json_parse, create_fallback_signal
 from datetime import datetime
 import pandas as pd
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
 # 初始化提示词构建器（模块级，避免重复初始化）
 _builder = PromptBuilder()
@@ -242,15 +245,69 @@ def _prepare_user_prompt_params(price_data, coin_data, position_data=None, accou
     """
     global _start_time, _invocation_count
     
-    # 初始化开始时间
-    if _start_time is None:
-        _start_time = datetime.now()
+    # 判断是模拟模式还是真实模式（通过检查TEST_MODE环境变量或position_data参数）
+    is_simulation = os.getenv('TEST_MODE', 'false').lower() == 'true' or position_data is not None
     
-    # 计算已过分钟数
-    elapsed = (datetime.now() - _start_time).total_seconds() / 60
-    
-    # 增加调用计数
-    _invocation_count += 1
+    # 从数据库获取统计数据
+    try:
+        if is_simulation:
+            from sim_data_manager import sim_data_manager
+            stats = sim_data_manager.get_system_stats()
+        else:
+            from data_manager import data_manager
+            stats = data_manager.get_system_stats()
+        
+        # 计算累计时间
+        # 如果数据库中有最后更新时间，计算从最后更新到现在的间隔
+        last_update_str = stats.get('last_update_time')
+        first_start_str = stats.get('first_start_time')
+        total_minutes_from_db = stats.get('total_minutes_elapsed', 0) or 0
+        total_invocation_from_db = stats.get('total_invocation_count', 0) or 0
+        
+        now = datetime.now()
+        
+        if total_minutes_from_db == 0 and first_start_str:
+            # 第一次调用：从首次启动时间开始计算
+            try:
+                first_start_time = datetime.fromisoformat(first_start_str)
+                total_minutes_elapsed = (now - first_start_time).total_seconds() / 60
+            except:
+                total_minutes_elapsed = 0
+        elif last_update_str:
+            # 非第一次调用：累计分钟数 = 数据库中的累计分钟数 + 上次更新到现在的分钟数
+            try:
+                last_update_time = datetime.fromisoformat(last_update_str)
+                minutes_since_last_update = (now - last_update_time).total_seconds() / 60
+                total_minutes_elapsed = total_minutes_from_db + minutes_since_last_update
+            except:
+                # 如果解析失败，使用数据库中的值
+                total_minutes_elapsed = total_minutes_from_db
+        else:
+            total_minutes_elapsed = total_minutes_from_db
+        
+        # 调用次数 = 数据库中的次数 + 1（本次调用）
+        total_invocation_count = total_invocation_from_db + 1
+        
+        # 更新数据库中的统计数据
+        try:
+            if is_simulation:
+                sim_data_manager.update_system_stats(total_minutes_elapsed, total_invocation_count)
+            else:
+                data_manager.update_system_stats(total_minutes_elapsed, total_invocation_count)
+        except Exception as e:
+            print(f"⚠️ 更新系统统计数据失败: {e}")
+        
+        # 使用累计数据
+        elapsed = total_minutes_elapsed
+        _invocation_count = total_invocation_count
+        
+    except Exception as e:
+        # 如果从数据库读取失败，回退到原来的逻辑
+        print(f"⚠️ 从数据库读取统计数据失败，使用会话级统计: {e}")
+        if _start_time is None:
+            _start_time = datetime.now()
+        elapsed = (datetime.now() - _start_time).total_seconds() / 60
+        _invocation_count += 1
     
     # 获取持仓信息
     if position_data is not None:
@@ -301,9 +358,9 @@ def _prepare_user_prompt_params(price_data, coin_data, position_data=None, accou
             current_total_return_percent = 0.0
     
     return {
-        'minutes_elapsed': int(elapsed),
+        'minutes_elapsed': int(elapsed),  # 累计分钟数（从首次启动开始）
         'current_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'invocation_count': _invocation_count,
+        'invocation_count': _invocation_count,  # 累计调用次数（从首次启动开始）
         'coins_data': [coin_data],
         'current_total_return_percent': current_total_return_percent,
         'available_cash': available_cash,
@@ -378,6 +435,9 @@ def analyze_with_deepseek(price_data, position_data=None, account_data=None):
         
         signal_data = parsed_signal_data
         
+        # 保存原始信号类型（用于验证止损止盈）
+        original_signal_type = signal_data.get('signal', '').upper() if signal_data else ''
+        
         # 7. 适配输出格式（新格式→旧格式）
         if signal_data:
             # 7.1 适配signal字段：新格式可能是 "buy_to_enter" | "sell_to_enter" | "hold" | "close"
@@ -424,6 +484,64 @@ def analyze_with_deepseek(price_data, position_data=None, account_data=None):
         if missing_fields:
             print(f"⚠️ 信号数据缺少必需字段: {missing_fields}，使用fallback信号")
             signal_data = create_fallback_signal(price_data)
+        
+        # 8.1 验证止损和止盈价格是否合理
+        current_price = price_data['price']
+        stop_loss = signal_data.get('stop_loss')
+        take_profit = signal_data.get('take_profit')
+        
+        # 检查止损和止盈是否相同或无效
+        if stop_loss is not None and take_profit is not None:
+            # 转换为浮点数进行比较
+            try:
+                stop_loss = float(stop_loss)
+                take_profit = float(take_profit)
+                
+                # 如果止损和止盈相同，或者都等于当前价格，需要修正
+                if abs(stop_loss - take_profit) < 0.01 or abs(stop_loss - current_price) < 0.01 or abs(take_profit - current_price) < 0.01:
+                    # 使用原始信号类型（在映射之前保存的）
+                    if original_signal_type in ['CLOSE', 'CLOSE_POSITION']:
+                        # CLOSE信号：修正止损和止盈，但保留原始信号意图
+                        print(f"⚠️ CLOSE信号的止损({stop_loss})和止盈({take_profit})价格相同，修正为合理值")
+                        signal_data['stop_loss'] = current_price * 0.98  # -2%
+                        signal_data['take_profit'] = current_price * 1.02  # +2%
+                        print(f"✅ 已修正：止损={signal_data['stop_loss']:.2f}, 止盈={signal_data['take_profit']:.2f}（保留CLOSE信号意图）")
+                    else:
+                        # 其他信号：使用fallback逻辑
+                        print(f"⚠️ 止损({stop_loss})和止盈({take_profit})价格相同或等于当前价格({current_price})，使用fallback逻辑")
+                        signal_data = create_fallback_signal(price_data)
+                else:
+                    # 确保止损和止盈相对于当前价格的方向正确
+                    # 对于做多：止损应该低于当前价格，止盈应该高于当前价格
+                    # 对于做空：止损应该高于当前价格，止盈应该低于当前价格
+                    signal_type = signal_data.get('signal', '').upper()
+                    if signal_type in ['BUY', 'BUY_TO_ENTER']:
+                        # 做多信号：止损应该 < 当前价格 < 止盈
+                        if stop_loss >= current_price or take_profit <= current_price:
+                            print(f"⚠️ 做多信号的止损/止盈方向不正确，调整中...")
+                            # 修正止损（当前价格的-2%）
+                            signal_data['stop_loss'] = current_price * 0.98
+                            # 修正止盈（当前价格的+2%）
+                            signal_data['take_profit'] = current_price * 1.02
+                            print(f"✅ 已修正：止损={signal_data['stop_loss']:.2f}, 止盈={signal_data['take_profit']:.2f}")
+                    elif signal_type in ['SELL', 'SELL_TO_ENTER']:
+                        # 做空信号：止损应该 > 当前价格 > 止盈
+                        if stop_loss <= current_price or take_profit >= current_price:
+                            print(f"⚠️ 做空信号的止损/止盈方向不正确，调整中...")
+                            # 修正止损（当前价格的+2%）
+                            signal_data['stop_loss'] = current_price * 1.02
+                            # 修正止盈（当前价格的-2%）
+                            signal_data['take_profit'] = current_price * 0.98
+                            print(f"✅ 已修正：止损={signal_data['stop_loss']:.2f}, 止盈={signal_data['take_profit']:.2f}")
+                    else:
+                        # HOLD或CLOSE信号：对于HOLD/CLOSE，止损止盈可能不需要，但确保它们不同
+                        if abs(stop_loss - take_profit) < 0.01:
+                            # 如果HOLD/CLOSE信号中止损止盈相同，使用fallback逻辑生成合理的值
+                            print(f"⚠️ HOLD/CLOSE信号的止损和止盈相同，使用fallback逻辑")
+                            signal_data = create_fallback_signal(price_data)
+            except (ValueError, TypeError) as e:
+                print(f"⚠️ 止损/止盈价格格式错误: {e}，使用fallback信号")
+                signal_data = create_fallback_signal(price_data)
         
         # 9. 保存信号到历史记录
         signal_data['timestamp'] = price_data['timestamp']
