@@ -99,17 +99,34 @@ class SimDataManager:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sim_position_records_timestamp ON sim_position_records(timestamp)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sim_position_records_action ON sim_position_records(action)')
         
-        # 5. 模拟AI分析记录表
+        # 5. 模拟AI分析记录表（包含完整提示词和响应）
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS sim_ai_analysis_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
+                system_prompt TEXT,
+                user_prompt TEXT,
+                ai_response TEXT,
                 analysis_data TEXT,
                 created_at TEXT NOT NULL
             )
         ''')
         
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sim_ai_analysis_timestamp ON sim_ai_analysis_history(timestamp)')
+        
+        # 如果表已存在但缺少新字段，尝试添加（忽略错误，如果字段已存在）
+        try:
+            cursor.execute('ALTER TABLE sim_ai_analysis_history ADD COLUMN system_prompt TEXT')
+        except:
+            pass
+        try:
+            cursor.execute('ALTER TABLE sim_ai_analysis_history ADD COLUMN user_prompt TEXT')
+        except:
+            pass
+        try:
+            cursor.execute('ALTER TABLE sim_ai_analysis_history ADD COLUMN ai_response TEXT')
+        except:
+            pass
         
         # 6. 模拟账户余额表（用于跟踪模拟账户资金）
         cursor.execute('''
@@ -509,20 +526,34 @@ class SimDataManager:
     # ========== AI分析记录管理 ==========
     
     def save_ai_analysis_record(self, analysis_record):
-        """保存模拟AI分析记录"""
+        """保存模拟AI分析记录（包含完整提示词和响应）"""
         conn = self._get_connection()
         cursor = conn.cursor()
         
         # 添加时间戳
-        analysis_record['timestamp'] = datetime.now().isoformat()
+        timestamp = analysis_record.get('timestamp', datetime.now().isoformat())
+        if isinstance(timestamp, datetime):
+            timestamp = timestamp.isoformat()
+        
+        # 提取各字段
+        system_prompt = analysis_record.get('system_prompt', '')
+        user_prompt = analysis_record.get('user_prompt', '')
+        ai_response = analysis_record.get('ai_response', '')
+        
+        # 分析数据（移除已单独存储的字段，避免重复）
+        analysis_data = {k: v for k, v in analysis_record.items() 
+                        if k not in ['system_prompt', 'user_prompt', 'ai_response', 'timestamp']}
         
         # 插入分析记录
         cursor.execute('''
-            INSERT INTO sim_ai_analysis_history (timestamp, analysis_data, created_at)
-            VALUES (?, ?, ?)
+            INSERT INTO sim_ai_analysis_history (timestamp, system_prompt, user_prompt, ai_response, analysis_data, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
         ''', (
-            analysis_record['timestamp'],
-            json.dumps(analysis_record, ensure_ascii=False),
+            timestamp,
+            system_prompt,
+            user_prompt,
+            ai_response,
+            json.dumps(analysis_data, ensure_ascii=False),
             datetime.now().isoformat()
         ))
         
@@ -555,9 +586,10 @@ class SimDataManager:
         offset = (page - 1) * page_size
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
         
-        # 获取分页数据
+        # 获取分页数据（包含完整提示词和响应）
         cursor.execute('''
-            SELECT analysis_data FROM sim_ai_analysis_history 
+            SELECT timestamp, system_prompt, user_prompt, ai_response, analysis_data 
+            FROM sim_ai_analysis_history 
             ORDER BY created_at DESC 
             LIMIT ? OFFSET ?
         ''', (page_size, offset))
@@ -565,8 +597,20 @@ class SimDataManager:
         rows = cursor.fetchall()
         conn.close()
         
+        # 组合数据
+        data = []
+        for row in rows:
+            record = json.loads(row['analysis_data']) if row['analysis_data'] else {}
+            record.update({
+                'timestamp': row['timestamp'],
+                'system_prompt': row['system_prompt'],
+                'user_prompt': row['user_prompt'],
+                'ai_response': row['ai_response']
+            })
+            data.append(record)
+        
         return {
-            'data': [json.loads(row['analysis_data']) for row in rows],
+            'data': data,
             'total': total,
             'page': page,
             'page_size': page_size,

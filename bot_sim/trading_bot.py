@@ -76,7 +76,7 @@ def trading_bot():
     if signal_data.get('is_fallback', False):
         print("[模拟] ⚠️ 使用备用交易信号")
 
-    # 5. 保存AI分析历史记录（模拟系统）
+    # 5. 保存AI分析历史记录（模拟系统，包含完整提示词和响应）
     try:
         analysis_record = {
             'signal': signal_data['signal'],
@@ -89,10 +89,14 @@ def trading_bot():
             'has_position': current_position is not None,
             'position_side': current_position['side'] if current_position else None,
             'position_size': current_position['size'] if current_position else 0,
-            'mode': 'simulation'
+            'mode': 'simulation',
+            # 保存完整提示词和响应
+            'system_prompt': signal_data.get('system_prompt', ''),
+            'user_prompt': signal_data.get('user_prompt', ''),
+            'ai_response': signal_data.get('ai_response', '')
         }
         sim_data_manager.save_ai_analysis_record(analysis_record)
-        print("[模拟] ✅ AI分析记录已保存")
+        print("[模拟] ✅ AI分析记录已保存（包含完整提示词和响应）")
     except Exception as e:
         print(f"[模拟] 保存AI分析记录失败: {e}")
 

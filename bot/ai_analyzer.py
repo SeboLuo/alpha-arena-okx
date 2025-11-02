@@ -287,6 +287,11 @@ def _prepare_user_prompt_params(price_data, coin_data):
 
 def analyze_with_deepseek(price_data):
     """使用DeepSeek分析市场并生成交易信号（使用新模板系统）"""
+    # 在函数开始时初始化提示词变量（用于异常时保存）
+    system_prompt = ''
+    user_prompt = ''
+    ai_response = ''
+    
     try:
         # 1. 准备系统提示词
         system_config = _prepare_system_config()
@@ -314,20 +319,31 @@ def analyze_with_deepseek(price_data):
         
         # 6. 解析响应
         result = response.choices[0].message.content
+        ai_response = result  # 保存响应
         print(f"DeepSeek原始回复: {result}")
         
         # 提取JSON部分
         start_idx = result.find('{')
         end_idx = result.rfind('}') + 1
         
+        # 解析后的信号数据
+        parsed_signal_data = None
+        
         if start_idx != -1 and end_idx != 0:
             json_str = result[start_idx:end_idx]
-            signal_data = safe_json_parse(json_str)
+            parsed_signal_data = safe_json_parse(json_str)
             
-            if signal_data is None:
-                signal_data = create_fallback_signal(price_data)
+            if parsed_signal_data is None:
+                parsed_signal_data = create_fallback_signal(price_data)
         else:
-            signal_data = create_fallback_signal(price_data)
+            parsed_signal_data = create_fallback_signal(price_data)
+        
+        # 在解析后的数据中添加提示词和响应（用于后续存储）
+        parsed_signal_data['system_prompt'] = system_prompt
+        parsed_signal_data['user_prompt'] = user_prompt
+        parsed_signal_data['ai_response'] = ai_response
+        
+        signal_data = parsed_signal_data
         
         # 7. 适配输出格式（新格式→旧格式）
         if signal_data:
@@ -399,14 +415,32 @@ def analyze_with_deepseek(price_data):
         print(f"DeepSeek分析失败: {e}")
         import traceback
         traceback.print_exc()
-        return create_fallback_signal(price_data)
+        # 即使是异常，也尝试保存已生成的提示词（如果存在）
+        fallback_signal = create_fallback_signal(price_data)
+        if system_prompt or user_prompt:
+            fallback_signal['system_prompt'] = system_prompt
+            fallback_signal['user_prompt'] = user_prompt
+            fallback_signal['ai_response'] = ai_response if ai_response else f"API调用异常: {str(e)}"
+        return fallback_signal
 
 
 def analyze_with_deepseek_with_retry(price_data, max_retries=2):
     """带重试的DeepSeek分析"""
+    # 保存最后一次的提示词（用于fallback时保存）
+    last_system_prompt = None
+    last_user_prompt = None
+    last_ai_response = None
+    
     for attempt in range(max_retries):
         try:
             signal_data = analyze_with_deepseek(price_data)
+            
+            # 保存提示词和响应（即使是fallback也保存）
+            if signal_data:
+                last_system_prompt = signal_data.get('system_prompt', '')
+                last_user_prompt = signal_data.get('user_prompt', '')
+                last_ai_response = signal_data.get('ai_response', '')
+            
             if signal_data and not signal_data.get('is_fallback', False):
                 return signal_data
             
@@ -417,8 +451,21 @@ def analyze_with_deepseek_with_retry(price_data, max_retries=2):
         except Exception as e:
             print(f"第{attempt + 1}次尝试异常: {e}")
             if attempt == max_retries - 1:
-                return create_fallback_signal(price_data)
+                fallback_signal = create_fallback_signal(price_data)
+                # 即使是fallback也尝试保存提示词（如果之前有）
+                if last_system_prompt or last_user_prompt or last_ai_response:
+                    fallback_signal['system_prompt'] = last_system_prompt or ''
+                    fallback_signal['user_prompt'] = last_user_prompt or ''
+                    fallback_signal['ai_response'] = last_ai_response or ''
+                return fallback_signal
             import time
             time.sleep(1)
     
-    return create_fallback_signal(price_data)
+    # 最后一次尝试失败
+    fallback_signal = create_fallback_signal(price_data)
+    # 尝试保存最后一次的提示词（如果存在）
+    if last_system_prompt or last_user_prompt or last_ai_response:
+        fallback_signal['system_prompt'] = last_system_prompt or ''
+        fallback_signal['user_prompt'] = last_user_prompt or ''
+        fallback_signal['ai_response'] = last_ai_response or ''
+    return fallback_signal
