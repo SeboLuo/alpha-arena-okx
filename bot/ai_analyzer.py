@@ -329,20 +329,21 @@ def analyze_with_deepseek(price_data):
         else:
             signal_data = create_fallback_signal(price_data)
         
-        # 7. 适配输出格式（新格式可能不同）
-        # 新格式：signal可能是 "buy_to_enter" | "sell_to_enter" | "hold" | "close"
-        # 需要转换为旧的 "BUY" | "SELL" | "HOLD"
-        if signal_data and 'signal' in signal_data:
-            signal_mapping = {
-                'buy_to_enter': 'BUY',
-                'sell_to_enter': 'SELL',
-                'hold': 'HOLD',
-                'close': 'HOLD'  # close也视为HOLD
-            }
-            original_signal = signal_data['signal']
-            signal_data['signal'] = signal_mapping.get(original_signal, original_signal.upper())
+        # 7. 适配输出格式（新格式→旧格式）
+        if signal_data:
+            # 7.1 适配signal字段：新格式可能是 "buy_to_enter" | "sell_to_enter" | "hold" | "close"
+            # 需要转换为旧的 "BUY" | "SELL" | "HOLD"
+            if 'signal' in signal_data:
+                signal_mapping = {
+                    'buy_to_enter': 'BUY',
+                    'sell_to_enter': 'SELL',
+                    'hold': 'HOLD',
+                    'close': 'HOLD'  # close也视为HOLD，后续由交易执行器处理
+                }
+                original_signal = signal_data['signal']
+                signal_data['signal'] = signal_mapping.get(original_signal.lower(), original_signal.upper())
             
-            # 适配confidence格式（如果是0-1浮点数，转换为HIGH|MEDIUM|LOW）
+            # 7.2 适配confidence格式：新格式是0-1浮点数，需要转换为HIGH|MEDIUM|LOW
             if 'confidence' in signal_data:
                 conf = signal_data['confidence']
                 if isinstance(conf, (int, float)):
@@ -352,14 +353,27 @@ def analyze_with_deepseek(price_data):
                         signal_data['confidence'] = 'MEDIUM'
                     else:
                         signal_data['confidence'] = 'LOW'
-        
-        # 8. 验证必需字段（保持原有格式）
-        required_fields = ['signal', 'reason', 'stop_loss', 'take_profit', 'confidence']
-        if not all(field in signal_data for field in required_fields):
-            # 如果没有reason字段，从justification获取
+            
+            # 7.3 适配字段名称映射（新格式→旧格式）
+            # justification → reason
             if 'justification' in signal_data and 'reason' not in signal_data:
                 signal_data['reason'] = signal_data['justification']
-            # 补充缺失字段
+            
+            # profit_target → take_profit
+            if 'profit_target' in signal_data and 'take_profit' not in signal_data:
+                signal_data['take_profit'] = signal_data['profit_target']
+            
+            # 保留新格式的额外字段（quantity, leverage, coin, risk_usd, invalidation_condition）
+            # 这些字段可能在后续的交易执行逻辑中使用，所以保留它们
+            # 如果新格式有这些字段，保留在原位置
+            # 如果旧代码需要，可以从这些字段获取
+        
+        # 8. 验证必需字段（旧格式要求的字段）
+        required_fields = ['signal', 'reason', 'stop_loss', 'take_profit', 'confidence']
+        missing_fields = [f for f in required_fields if f not in signal_data]
+        
+        if missing_fields:
+            print(f"⚠️ 信号数据缺少必需字段: {missing_fields}，使用fallback信号")
             signal_data = create_fallback_signal(price_data)
         
         # 9. 保存信号到历史记录
