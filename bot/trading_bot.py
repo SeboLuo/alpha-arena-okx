@@ -119,11 +119,7 @@ def main():
     """主函数"""
     print("BTC/USDT OKX自动交易机器人启动成功！")
     print("融合技术指标策略 + OKX实盘接口")
-
-    if TRADE_CONFIG['test_mode']:
-        print("当前为模拟模式，不会真实下单")
-    else:
-        print("实盘交易模式，请谨慎操作！")
+    print("实盘交易模式，请谨慎操作！")
 
     print(f"交易周期: {TRADE_CONFIG['timeframe']}")
     print("已启用完整技术指标分析和持仓跟踪功能")
