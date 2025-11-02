@@ -23,8 +23,9 @@ def execute_intelligent_trade(signal_data, price_data):
     
     try:
         current_price = price_data['price']
-        position_action = None  # 'open', 'close', 'add', 'reduce'
+        position_action = None  # 'open', 'close', 'add', 'reduce', 'hold'
         position_side = None
+        trade_amount = 0  # 交易数量
         pnl = 0
         
         # 执行模拟交易逻辑 - 支持同方向加仓减仓
@@ -36,6 +37,7 @@ def execute_intelligent_trade(signal_data, price_data):
                     
                     position_action = 'close'
                     position_side = 'short'
+                    trade_amount = current_position['size']
                     
                     # 先记录平仓，返回计算的盈亏
                     pnl = _update_sim_position('close', 'short', current_position['size'], current_price)
@@ -44,15 +46,17 @@ def execute_intelligent_trade(signal_data, price_data):
                     time.sleep(0.1)
                     
                     # 再开多仓
-                    _update_sim_position('open', 'long', position_size, current_price, 0)
+                    _update_sim_position('open', 'long', position_size, current_price)
                     position_action = 'open'
                     position_side = 'long'
+                    trade_amount = position_size
                     
                 else:
                     print("[模拟] ⚠️ 检测到空头持仓但数量为0，直接开多仓")
-                    _update_sim_position('open', 'long', position_size, current_price, 0)
+                    _update_sim_position('open', 'long', position_size, current_price)
                     position_action = 'open'
                     position_side = 'long'
+                    trade_amount = position_size
             
             elif current_position and current_position['side'] == 'long':
                 # 同方向，检查是否需要调整仓位
@@ -63,8 +67,10 @@ def execute_intelligent_trade(signal_data, price_data):
                         # 加仓
                         add_size = round(size_diff, 2)
                         print(f"[模拟] 多仓加仓 {add_size:.2f} 张 (当前:{current_position['size']:.2f} → 目标:{position_size:.2f})")
-                        _update_sim_position('open', 'long', add_size, current_price, 0)
-                        position_action = None  # 加仓不算开仓，只是增加持仓
+                        _update_sim_position('open', 'long', add_size, current_price)
+                        position_action = 'add'  # 标记为加仓
+                        position_side = 'long'
+                        trade_amount = add_size
                     else:
                         # 减仓（部分平仓）
                         reduce_size = round(abs(size_diff), 2)
@@ -72,16 +78,21 @@ def execute_intelligent_trade(signal_data, price_data):
                         
                         # 部分平仓，获取计算的盈亏
                         pnl = _update_sim_position('close', 'long', reduce_size, current_price)
-                        position_action = None  # 减仓不算平仓
+                        position_action = 'reduce'  # 标记为减仓
+                        position_side = 'long'
+                        trade_amount = reduce_size
                 else:
                     print(f"[模拟] 已有多头持仓，仓位合适保持现状 (当前:{current_position['size']:.2f}, 目标:{position_size:.2f})")
-                    return
+                    position_action = 'hold'  # 标记为保持仓位
+                    position_side = 'long'
+                    trade_amount = 0
             else:
                 # 无持仓时开多仓
                 print(f"[模拟] 开多仓 {position_size:.2f} 张...")
-                _update_sim_position('open', 'long', position_size, current_price, 0)
+                _update_sim_position('open', 'long', position_size, current_price)
                 position_action = 'open'
                 position_side = 'long'
+                trade_amount = position_size
         
         elif signal_data['signal'] == 'SELL':
             if current_position and current_position['side'] == 'long':
@@ -91,6 +102,7 @@ def execute_intelligent_trade(signal_data, price_data):
                     
                     position_action = 'close'
                     position_side = 'long'
+                    trade_amount = current_position['size']
                     
                     # 先记录平仓，返回计算的盈亏
                     pnl = _update_sim_position('close', 'long', current_position['size'], current_price)
@@ -99,15 +111,17 @@ def execute_intelligent_trade(signal_data, price_data):
                     time.sleep(0.1)
                     
                     # 再开空仓
-                    _update_sim_position('open', 'short', position_size, current_price, 0)
+                    _update_sim_position('open', 'short', position_size, current_price)
                     position_action = 'open'
                     position_side = 'short'
+                    trade_amount = position_size
                     
                 else:
                     print("[模拟] ⚠️ 检测到多头持仓但数量为0，直接开空仓")
-                    _update_sim_position('open', 'short', position_size, current_price, 0)
+                    _update_sim_position('open', 'short', position_size, current_price)
                     position_action = 'open'
                     position_side = 'short'
+                    trade_amount = position_size
             
             elif current_position and current_position['side'] == 'short':
                 # 同方向，检查是否需要调整仓位
@@ -118,8 +132,10 @@ def execute_intelligent_trade(signal_data, price_data):
                         # 加仓
                         add_size = round(size_diff, 2)
                         print(f"[模拟] 空仓加仓 {add_size:.2f} 张 (当前:{current_position['size']:.2f} → 目标:{position_size:.2f})")
-                        _update_sim_position('open', 'short', add_size, current_price, 0)
-                        position_action = None  # 加仓不算开仓
+                        _update_sim_position('open', 'short', add_size, current_price)
+                        position_action = 'add'  # 标记为加仓
+                        position_side = 'short'
+                        trade_amount = add_size
                     else:
                         # 减仓（部分平仓）
                         reduce_size = round(abs(size_diff), 2)
@@ -127,20 +143,27 @@ def execute_intelligent_trade(signal_data, price_data):
                         
                         # 部分平仓，获取计算的盈亏
                         pnl = _update_sim_position('close', 'short', reduce_size, current_price)
-                        position_action = None  # 减仓不算平仓
+                        position_action = 'reduce'  # 标记为减仓
+                        position_side = 'short'
+                        trade_amount = reduce_size
                 else:
                     print(f"[模拟] 已有空头持仓，仓位合适保持现状 (当前:{current_position['size']:.2f}, 目标:{position_size:.2f})")
-                    return
+                    position_action = 'hold'  # 标记为保持仓位
+                    position_side = 'short'
+                    trade_amount = 0
             else:
                 # 无持仓时开空仓
                 print(f"[模拟] 开空仓 {position_size:.2f} 张...")
-                _update_sim_position('open', 'short', position_size, current_price, 0)
+                _update_sim_position('open', 'short', position_size, current_price)
                 position_action = 'open'
                 position_side = 'short'
+                trade_amount = position_size
         
         elif signal_data['signal'] == 'HOLD':
             print("[模拟] 建议观望，不执行交易")
-            return
+            position_action = 'hold'
+            position_side = current_position['side'] if current_position else None
+            trade_amount = 0
         
         print("[模拟] 智能交易执行成功")
         
@@ -156,7 +179,7 @@ def execute_intelligent_trade(signal_data, price_data):
             sim_data_manager.update_sim_balance(new_balance, new_equity)
             print(f"[模拟] 账户余额更新: {sim_balance['balance']:.2f} → {new_balance:.2f} USDT (盈亏: {pnl:+.2f} USDT)")
         
-        # 保存交易记录
+        # 保存交易记录 - 确保每次AI信号都保存一条记录
         try:
             # 如果方向改变，需要额外记录开仓事件
             if current_position and updated_position and current_position['side'] != updated_position.get('side'):
@@ -191,22 +214,29 @@ def execute_intelligent_trade(signal_data, price_data):
                 sim_data_manager.save_trade_record(open_record)
                 print("[模拟] ✅ 交易记录已保存（平仓+开仓）")
             else:
-                # 普通交易记录（开仓、平仓、加仓、减仓）
-                if position_action:  # 只有开仓或平仓时才保存记录
+                # 保存交易记录（包括开仓、平仓、加仓、减仓、保持）
+                # 现在 position_action 可以是: 'open', 'close', 'add', 'reduce', 'hold'
+                if position_action:  # 确保有操作记录
+                    # 对于加仓/减仓，记录实际交易的数量
+                    amount_to_record = trade_amount if trade_amount > 0 else (current_position['size'] if current_position else position_size)
+                    
                     trade_record = {
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'signal': signal_data['signal'],
                         'price': current_price,
-                        'amount': position_size if position_action == 'open' else (current_position['size'] if current_position else position_size),
+                        'amount': amount_to_record,
                         'confidence': signal_data['confidence'],
                         'reason': signal_data['reason'],
                         'pnl': pnl,
                         'position_action': position_action,
                         'position_side': position_side,
+                        'trade_type': position_action,  # 保存交易类型
                         'notes': json.dumps({'mode': 'simulation'}, ensure_ascii=False)
                     }
                     sim_data_manager.save_trade_record(trade_record)
-                    print("[模拟] ✅ 交易记录已保存")
+                    
+                    action_name = {'open': '开仓', 'close': '平仓', 'add': '加仓', 'reduce': '减仓', 'hold': '保持'}.get(position_action, position_action)
+                    print(f"[模拟] ✅ 交易记录已保存 ({action_name})")
         except Exception as e:
             print(f"[模拟] 保存交易记录失败: {e}")
             import traceback

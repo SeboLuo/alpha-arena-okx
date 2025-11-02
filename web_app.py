@@ -11,10 +11,14 @@ load_dotenv()
 TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true'
 TRADE_MODE = 'simulation' if TEST_MODE else 'real'
 
+print(f"[Web应用] TEST_MODE={os.getenv('TEST_MODE')}, 交易模式={TRADE_MODE}")
+
 if TEST_MODE:
     from sim_data_manager import sim_data_manager as data_manager
+    print("[Web应用] ✅ 已加载模拟交易数据管理器 (sim_data_manager)")
 else:
     from data_manager import data_manager
+    print("[Web应用] ✅ 已加载真实交易数据管理器 (data_manager)")
 
 # 设置模板目录路径
 template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
@@ -30,6 +34,9 @@ def index():
 def get_system_status():
     """获取系统状态"""
     status = data_manager.get_system_status()
+    # 添加调试信息（仅在开发时有用）
+    if not status:
+        print(f"[Web应用] 警告: 系统状态为空 (模式={TRADE_MODE})")
     return jsonify(status)
 
 @app.route('/api/trade-history')
@@ -54,7 +61,9 @@ def get_performance():
 @app.route('/api/chart-data')
 def get_chart_data():
     """获取图表数据"""
-    trades = data_manager.get_trade_history()
+    # 获取所有交易数据（不传分页参数会返回第一页，但我们需要获取全部数据用于图表）
+    result = data_manager.get_trade_history(page=1, page_size=100)
+    trades = result.get('data', [])
     
     # 生成价格走势数据
     price_data = []

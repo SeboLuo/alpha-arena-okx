@@ -168,16 +168,22 @@ class SimDataManager:
         cursor.execute('SELECT COUNT(*) FROM sim_account')
         if cursor.fetchone()[0] == 0:
             # 从bot_sim.config读取初始余额配置（延迟导入避免循环依赖）
+            initial_balance = 1000  # 默认值改为1000
             try:
                 from bot_sim.config import TRADE_CONFIG
-                initial_balance = float(TRADE_CONFIG.get('initial_balance', 10000))
-            except ImportError:
+                initial_balance = float(TRADE_CONFIG.get('initial_balance', 1000))
+                print(f"[模拟] ✅ 从配置读取初始余额: {initial_balance} USDT")
+            except ImportError as e:
                 # 如果无法导入，使用默认值
-                initial_balance = 10000
+                print(f"[模拟] ⚠️ 无法导入配置，使用默认余额: {initial_balance} USDT (错误: {e})")
+            except Exception as e:
+                print(f"[模拟] ⚠️ 读取配置出错，使用默认余额: {initial_balance} USDT (错误: {e})")
+            
             cursor.execute('''
                 INSERT INTO sim_account (id, balance, equity, last_updated)
                 VALUES (1, ?, ?, ?)
             ''', (initial_balance, initial_balance, datetime.now().isoformat()))
+            print(f"[模拟] ✅ 模拟账户已初始化，余额: {initial_balance} USDT")
     
     # ========== 模拟账户管理 ==========
     
@@ -188,24 +194,69 @@ class SimDataManager:
         
         cursor.execute('SELECT * FROM sim_account WHERE id = 1')
         row = cursor.fetchone()
-        conn.close()
         
         if row:
-            return {
+            result = {
                 'balance': row['balance'] or 0,
                 'equity': row['equity'] or 0
             }
+            conn.close()
+            return result
         
         # 如果不存在，从配置中初始化
+        initial_balance = 1000  # 默认值改为1000
         try:
             from bot_sim.config import TRADE_CONFIG
-            initial_balance = float(TRADE_CONFIG.get('initial_balance', 10000))
-        except ImportError:
-            initial_balance = 10000
+            initial_balance = float(TRADE_CONFIG.get('initial_balance', 1000))
+        except (ImportError, Exception):
+            pass  # 使用默认值1000
+        
+        # 插入新记录
+        cursor.execute('''
+            INSERT INTO sim_account (id, balance, equity, last_updated)
+            VALUES (1, ?, ?, ?)
+        ''', (initial_balance, initial_balance, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+        
         return {
             'balance': initial_balance,
             'equity': initial_balance
         }
+    
+    def reset_sim_balance(self):
+        """重置模拟账户余额到配置的初始值（用于更新配置后重置余额）"""
+        initial_balance = 1000  # 默认值改为1000
+        try:
+            from bot_sim.config import TRADE_CONFIG
+            initial_balance = float(TRADE_CONFIG.get('initial_balance', 1000))
+        except (ImportError, Exception):
+            pass  # 使用默认值1000
+        
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # 更新或插入账户记录
+        cursor.execute('SELECT COUNT(*) FROM sim_account WHERE id = 1')
+        exists = cursor.fetchone()[0] > 0
+        
+        if exists:
+            cursor.execute('''
+                UPDATE sim_account 
+                SET balance = ?, equity = ?, last_updated = ?
+                WHERE id = 1
+            ''', (initial_balance, initial_balance, datetime.now().isoformat()))
+        else:
+            cursor.execute('''
+                INSERT INTO sim_account (id, balance, equity, last_updated)
+                VALUES (1, ?, ?, ?)
+            ''', (initial_balance, initial_balance, datetime.now().isoformat()))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"[模拟] ✅ 账户余额已重置为 {initial_balance} USDT")
+        return initial_balance
     
     def update_sim_balance(self, balance: float, equity: float = None):
         """更新模拟账户余额"""

@@ -100,18 +100,47 @@ def trading_bot():
     except Exception as e:
         print(f"[模拟] 保存AI分析记录失败: {e}")
 
-    # 6. 更新模拟系统状态到Web界面
+    # 6. 执行模拟智能交易（先执行交易，再更新状态）
+    execute_intelligent_trade(signal_data, price_data)
+
+    # 7. 交易执行后，重新获取最新的账户和持仓信息并更新系统状态
     try:
+        # 重新获取最新的模拟账户余额（交易后可能已变化）
+        updated_sim_balance = sim_data_manager.get_sim_balance()
+        updated_account_info = {
+            'balance': updated_sim_balance['balance'],
+            'equity': updated_sim_balance['equity'],
+            'leverage': TRADE_CONFIG['leverage']
+        }
+        
+        # 重新获取最新的持仓（交易后可能已变化）
+        updated_position = get_current_position()
+        updated_position_info = None
+        if updated_position:
+            # 重新计算未实现盈亏
+            if updated_position['side'] == 'long':
+                unrealized_pnl = (price_data['price'] - updated_position['entry_price']) * updated_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+            else:  # short
+                unrealized_pnl = (updated_position['entry_price'] - price_data['price']) * updated_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+            
+            updated_position_info = {
+                'side': updated_position['side'],
+                'size': updated_position['size'],
+                'entry_price': updated_position['entry_price'],
+                'unrealized_pnl': unrealized_pnl
+            }
+        
+        # 更新模拟系统状态到Web界面（使用最新的账户和持仓信息）
         sim_data_manager.update_system_status(
             status='running',
-            account_info=account_info,
+            account_info=updated_account_info,
             btc_info={
                 'price': price_data['price'],
                 'change': price_data['price_change'],
                 'timeframe': TRADE_CONFIG['timeframe'],
                 'mode': '模拟交易-全仓-单向'
             },
-            position=position_info,
+            position=updated_position_info,
             ai_signal={
                 'signal': signal_data['signal'],
                 'confidence': signal_data['confidence'],
@@ -120,12 +149,9 @@ def trading_bot():
                 'take_profit': signal_data['take_profit']
             }
         )
-        print("[模拟] ✅ 系统状态已更新到Web界面")
+        print("[模拟] ✅ 系统状态已更新到Web界面（交易后最新数据）")
     except Exception as e:
         print(f"[模拟] 更新系统状态失败: {e}")
-
-    # 7. 执行模拟智能交易
-    execute_intelligent_trade(signal_data, price_data)
 
 
 def main():

@@ -558,8 +558,9 @@
                 // 更新持仓信息
                 if (data.position && data.position.side) {
                     const side = data.position.side === 'long' ? '多' : '空';
+                    const positionSize = parseFloat(data.position.size || 0);
                     document.getElementById('positionInfo').textContent = 
-                        `${side}仓 ${data.position.size} 张`;
+                        `${side}仓 ${positionSize.toFixed(4)} 张`;
                     document.getElementById('positionPnl').textContent = 
                         `盈亏: ${(data.position.unrealized_pnl || 0).toFixed(2)} USDT`;
                     

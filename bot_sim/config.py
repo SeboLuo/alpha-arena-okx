@@ -21,7 +21,7 @@ TRADE_CONFIG = {
     'data_points': 96,  # 96根timeframe周期的K线（用于获取历史K线数据）
     'contract_size': 0.01,  # 合约乘数（BTC/USDT永续合约通常是0.01）
     'min_amount': 0.01,  # 最小交易量
-    'initial_balance': 10000,  # 模拟账户初始余额（USDT），与实盘配置方式保持一致
+    'initial_balance': 1000,  # 模拟账户初始余额（USDT），与实盘配置方式保持一致
     # 智能仓位参数（与实盘保持一致）
     'position_management': {
         'enable_intelligent_position': True,  # 是否启用智能仓位管理
