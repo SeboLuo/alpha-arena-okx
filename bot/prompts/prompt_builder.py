@@ -148,26 +148,27 @@ class PromptBuilder:
         Returns:
             构建好的币种数据区块
         """
+        # 根据示例格式，币种数据直接输出数值，不格式化
         replacements = {
             'Symbol': coin_data.get('symbol', 'BTC'),
-            'CurrentPrice': self._format_price(coin_data.get('current_price', 0)),
-            'CurrentEMA20': self._format_price(coin_data.get('current_ema20', 0)),
-            'CurrentMACD': self._format_decimal(coin_data.get('current_macd', 0)),
-            'CurrentRSI7': self._format_decimal(coin_data.get('current_rsi7', 0), 2),
-            'OI_Latest': self._format_number(coin_data.get('oi_latest', 0)),
-            'OI_Avg': self._format_number(coin_data.get('oi_avg', 0)),
-            'FundingRate': self._format_percentage(coin_data.get('funding_rate', 0)),
+            'CurrentPrice': coin_data.get('current_price', 0),
+            'CurrentEMA20': coin_data.get('current_ema20', 0),
+            'CurrentMACD': coin_data.get('current_macd', 0),
+            'CurrentRSI7': coin_data.get('current_rsi7', 0),
+            'OI_Latest': coin_data.get('oi_latest', 0),
+            'OI_Avg': coin_data.get('oi_avg', 0),
+            'FundingRate': coin_data.get('funding_rate', 0),  # 可能使用科学计数法
             'MidPrices': coin_data.get('mid_prices', []),
             'EMA20Series': coin_data.get('ema20_series', []),
             'MACDSeries': coin_data.get('macd_series', []),
             'RSI7Series': coin_data.get('rsi7_series', []),
             'RSI14Series': coin_data.get('rsi14_series', []),
-            'EMA20_4h': self._format_price(coin_data.get('ema20_4h', 0)),
-            'EMA50_4h': self._format_price(coin_data.get('ema50_4h', 0)),
-            'ATR3_4h': self._format_price(coin_data.get('atr3_4h', 0)),
-            'ATR14_4h': self._format_price(coin_data.get('atr14_4h', 0)),
-            'CurrentVolume_4h': self._format_number(coin_data.get('current_volume_4h', 0)),
-            'AvgVolume_4h': self._format_number(coin_data.get('avg_volume_4h', 0)),
+            'EMA20_4h': coin_data.get('ema20_4h', 0),
+            'EMA50_4h': coin_data.get('ema50_4h', 0),
+            'ATR3_4h': coin_data.get('atr3_4h', 0),
+            'ATR14_4h': coin_data.get('atr14_4h', 0),
+            'CurrentVolume_4h': coin_data.get('current_volume_4h', 0),
+            'AvgVolume_4h': coin_data.get('avg_volume_4h', 0),
             'MACD4h': coin_data.get('macd_4h', []),
             'RSI14_4h': coin_data.get('rsi14_4h', []),
         }
@@ -260,13 +261,14 @@ class PromptBuilder:
             
             value = replacements[placeholder_name]
             
-            # 如果需要JSON转换
+            # 如果需要JSON转换（示例格式是紧凑的，无缩进）
             if has_json:
                 if isinstance(value, (list, dict)):
-                    return json.dumps(value, ensure_ascii=False, indent=2)
+                    # 紧凑格式，与示例一致
+                    return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
                 else:
                     # 如果不是可序列化对象，转换为JSON字符串
-                    return json.dumps(value, ensure_ascii=False)
+                    return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
             else:
                 # 直接转换为字符串
                 return str(value)

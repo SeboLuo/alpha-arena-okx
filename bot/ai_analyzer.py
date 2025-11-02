@@ -1,185 +1,390 @@
 """AI分析模块 - DeepSeek分析"""
-from .config import deepseek_client, TRADE_CONFIG, signal_history
-from .technical_analysis import generate_technical_analysis_text
-from .sentiment import get_sentiment_indicators
+from .config import deepseek_client, TRADE_CONFIG, signal_history, exchange
+from .prompts import PromptBuilder
+from .technical_analysis import (
+    calculate_rsi_series,
+    calculate_ema_series,
+    calculate_macd_series,
+    calculate_atr_series
+)
 from .position_manager import get_current_position
 from .utils import safe_json_parse, create_fallback_signal
+from datetime import datetime
+import pandas as pd
+
+
+# 初始化提示词构建器（模块级，避免重复初始化）
+_builder = PromptBuilder()
+
+# 交易开始时间计数器（用于计算minutes_elapsed）
+_start_time = None
+_invocation_count = 0
+
+
+def _get_oi_and_funding_rate(symbol):
+    """获取Open Interest和Funding Rate"""
+    try:
+        # OKX获取持仓量
+        ticker = exchange.fetch_ticker(symbol)
+        oi_latest = ticker.get('openInterest', 0) or 0
+        
+        # 获取资金费率（需要调用特定API）
+        try:
+            funding_rate_info = exchange.fetch_funding_rate(symbol)
+            funding_rate = funding_rate_info.get('fundingRate', 0) if funding_rate_info else 0
+        except:
+            # 如果API不支持，尝试从ticker获取
+            funding_rate = ticker.get('info', {}).get('fundingRate', 0) or 0
+        
+        # 计算平均OI（简化处理，使用当前值）
+        oi_avg = oi_latest
+        
+        return {
+            'oi_latest': float(oi_latest),
+            'oi_avg': float(oi_avg),
+            'funding_rate': float(funding_rate) if funding_rate else 0.0
+        }
+    except Exception as e:
+        print(f"获取OI和Funding Rate失败: {e}")
+        return {
+            'oi_latest': 0.0,
+            'oi_avg': 0.0,
+            'funding_rate': 0.0
+        }
+
+
+def _get_4h_data(symbol):
+    """获取4小时时间框架的数据"""
+    try:
+        # 获取4小时K线数据
+        ohlcv_4h = exchange.fetch_ohlcv(symbol, '4h', limit=60)
+        df_4h = pd.DataFrame(ohlcv_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        
+        # 计算技术指标
+        df_4h['ema_20'] = df_4h['close'].ewm(span=20, adjust=False).mean()
+        df_4h['ema_50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
+        
+        # MACD
+        ema_12_4h = df_4h['close'].ewm(span=12).mean()
+        ema_26_4h = df_4h['close'].ewm(span=26).mean()
+        df_4h['macd_4h'] = ema_12_4h - ema_26_4h
+        
+        # RSI14
+        delta_4h = df_4h['close'].diff()
+        gain_4h = (delta_4h.where(delta_4h > 0, 0)).rolling(14).mean()
+        loss_4h = (-delta_4h.where(delta_4h < 0, 0)).rolling(14).mean()
+        rs_4h = gain_4h / loss_4h
+        df_4h['rsi14_4h'] = 100 - (100 / (1 + rs_4h))
+        
+        # ATR
+        high_low_4h = df_4h['high'] - df_4h['low']
+        high_close_4h = abs(df_4h['high'] - df_4h['close'].shift())
+        low_close_4h = abs(df_4h['low'] - df_4h['close'].shift())
+        tr_4h = pd.concat([high_low_4h, high_close_4h, low_close_4h], axis=1).max(axis=1)
+        df_4h['atr3_4h'] = tr_4h.rolling(3).mean()
+        df_4h['atr14_4h'] = tr_4h.rolling(14).mean()
+        
+        # 填充NaN
+        df_4h = df_4h.bfill().ffill().fillna(0)
+        
+        current = df_4h.iloc[-1]
+        
+        return {
+            'ema20_4h': float(current['ema_20']),
+            'ema50_4h': float(current['ema_50']),
+            'atr3_4h': float(current['atr3_4h']),
+            'atr14_4h': float(current['atr14_4h']),
+            'current_volume_4h': float(current['volume']),
+            'avg_volume_4h': float(df_4h['volume'].tail(20).mean()),
+            'macd_4h': df_4h['macd_4h'].tail(10).fillna(0).tolist(),
+            'rsi14_4h': df_4h['rsi14_4h'].tail(10).fillna(50).tolist(),
+        }
+    except Exception as e:
+        print(f"获取4小时数据失败: {e}")
+        return {
+            'ema20_4h': 0.0,
+            'ema50_4h': 0.0,
+            'atr3_4h': 0.0,
+            'atr14_4h': 0.0,
+            'current_volume_4h': 0.0,
+            'avg_volume_4h': 0.0,
+            'macd_4h': [],
+            'rsi14_4h': [],
+        }
+
+
+def _convert_price_data_to_coin_data(price_data):
+    """将price_data转换为coin_data格式"""
+    try:
+        df = price_data.get('full_data')
+        if df is None or df.empty:
+            raise ValueError("full_data不可用")
+        
+        # 获取最新数据（最后10根K线用于序列）
+        recent_count = min(10, len(df))
+        df_recent = df.tail(recent_count)
+        
+        # 计算序列数据
+        mid_prices = ((df_recent['high'] + df_recent['low']) / 2).tolist()
+        ema20_series = calculate_ema_series(df_recent, 20)[-recent_count:]
+        macd_series = calculate_macd_series(df_recent)[-recent_count:]
+        rsi7_series = calculate_rsi_series(df_recent, 7)[-recent_count:]
+        rsi14_series = calculate_rsi_series(df_recent, 14)[-recent_count:]
+        
+        # 当前值
+        current = df.iloc[-1]
+        tech = price_data.get('technical_data', {})
+        
+        # 计算EMA20（如果不存在）
+        if 'ema_20' not in df.columns:
+            df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+        current_ema20 = float(df['ema_20'].iloc[-1])
+        
+        # 计算RSI7（如果不存在）
+        if 'rsi_7' not in df.columns:
+            rsi7_series_full = calculate_rsi_series(df, 7)
+            current_rsi7 = rsi7_series_full[-1]
+        else:
+            current_rsi7 = float(df['rsi_7'].iloc[-1])
+        
+        # 获取OI和Funding Rate
+        symbol = TRADE_CONFIG['symbol']
+        oi_data = _get_oi_and_funding_rate(symbol)
+        
+        # 获取4小时数据
+        data_4h = _get_4h_data(symbol)
+        
+        # 从symbol中提取币种名称（BTC/USDT:USDT -> BTC）
+        coin_symbol = symbol.split('/')[0]
+        
+        coin_data = {
+            'symbol': coin_symbol,
+            'current_price': float(price_data['price']),
+            'current_ema20': current_ema20,
+            'current_macd': float(tech.get('macd', 0)),
+            'current_rsi7': float(current_rsi7),
+            'oi_latest': oi_data['oi_latest'],
+            'oi_avg': oi_data['oi_avg'],
+            'funding_rate': oi_data['funding_rate'],
+            'mid_prices': [float(x) for x in mid_prices],
+            'ema20_series': [float(x) for x in ema20_series],
+            'macd_series': [float(x) for x in macd_series],
+            'rsi7_series': [float(x) for x in rsi7_series],
+            'rsi14_series': [float(x) for x in rsi14_series],
+            'ema20_4h': data_4h['ema20_4h'],
+            'ema50_4h': data_4h['ema50_4h'],
+            'atr3_4h': data_4h['atr3_4h'],
+            'atr14_4h': data_4h['atr14_4h'],
+            'current_volume_4h': data_4h['current_volume_4h'],
+            'avg_volume_4h': data_4h['avg_volume_4h'],
+            'macd_4h': [float(x) for x in data_4h['macd_4h']],
+            'rsi14_4h': [float(x) for x in data_4h['rsi14_4h']],
+        }
+        
+        return coin_data
+    except Exception as e:
+        print(f"数据转换失败: {e}")
+        import traceback
+        traceback.print_exc()
+        # 返回最小可用数据
+        return {
+            'symbol': 'BTC',
+            'current_price': float(price_data.get('price', 0)),
+            'current_ema20': 0.0,
+            'current_macd': 0.0,
+            'current_rsi7': 0.0,
+            'oi_latest': 0.0,
+            'oi_avg': 0.0,
+            'funding_rate': 0.0,
+            'mid_prices': [],
+            'ema20_series': [],
+            'macd_series': [],
+            'rsi7_series': [],
+            'rsi14_series': [],
+            'ema20_4h': 0.0,
+            'ema50_4h': 0.0,
+            'atr3_4h': 0.0,
+            'atr14_4h': 0.0,
+            'current_volume_4h': 0.0,
+            'avg_volume_4h': 0.0,
+            'macd_4h': [],
+            'rsi14_4h': [],
+        }
+
+
+def _prepare_system_config():
+    """准备系统提示词配置"""
+    symbol = TRADE_CONFIG['symbol']
+    asset_universe = symbol.split('/')[0]  # 提取BTC
+    
+    return {
+        'exchange': 'OKX',
+        'model_name': 'DeepSeek-v1',
+        'asset_universe': asset_universe,
+        'starting_capital': 10000,  # 可以从配置或账户获取
+        'market_hours': '24/7',
+        'decision_frequency': f'Every {TRADE_CONFIG["interval_minutes"]} minutes',
+        'leverage_range': f'1-{TRADE_CONFIG["leverage"]}x',
+        'contract_type': 'Perpetual Swap',
+        'trading_fees': '0.02% maker, 0.05% taker',
+        'slippage': '0.01-0.05%',
+    }
+
+
+def _prepare_user_prompt_params(price_data, coin_data):
+    """准备用户提示词参数"""
+    global _start_time, _invocation_count
+    
+    # 初始化开始时间
+    if _start_time is None:
+        _start_time = datetime.now()
+    
+    # 计算已过分钟数
+    elapsed = (datetime.now() - _start_time).total_seconds() / 60
+    
+    # 增加调用计数
+    _invocation_count += 1
+    
+    # 获取持仓信息
+    current_pos = get_current_position()
+    positions = []
+    if current_pos:
+        positions = [{
+            'symbol': current_pos.get('symbol', 'BTC'),
+            'side': current_pos.get('side', 'long'),
+            'size': current_pos.get('size', 0),
+            'entry_price': current_pos.get('entry_price', 0),
+            'current_price': float(price_data['price']),
+            'unrealized_pnl': current_pos.get('unrealized_pnl', 0),
+            'leverage': current_pos.get('leverage', TRADE_CONFIG['leverage']),
+        }]
+    
+    # 获取账户信息
+    try:
+        balance = exchange.fetch_balance()
+        available_cash = float(balance['USDT'].get('free', 0))
+        total_value = float(balance['USDT'].get('total', 0))
+        
+        # 计算总回报（简化处理）
+        current_total_return_percent = 0.0  # 可以从历史记录计算
+        current_account_value = total_value
+    except:
+        available_cash = 0.0
+        current_account_value = 0.0
+        current_total_return_percent = 0.0
+    
+    return {
+        'minutes_elapsed': int(elapsed),
+        'current_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'invocation_count': _invocation_count,
+        'coins_data': [coin_data],
+        'current_total_return_percent': current_total_return_percent,
+        'available_cash': available_cash,
+        'current_account_value': current_account_value,
+        'positions': positions,
+    }
 
 
 def analyze_with_deepseek(price_data):
-    """使用DeepSeek分析市场并生成交易信号（增强版）"""
-
-    # 生成技术分析文本
-    technical_analysis = generate_technical_analysis_text(price_data)
-
-    # 构建K线数据文本
-    kline_text = f"【最近5根{TRADE_CONFIG['timeframe']}K线数据】\n"
-    for i, kline in enumerate(price_data['kline_data'][-5:]):
-        trend = "阳线" if kline['close'] > kline['open'] else "阴线"
-        change = ((kline['close'] - kline['open']) / kline['open']) * 100
-        kline_text += f"K线{i + 1}: {trend} 开盘:{kline['open']:.2f} 收盘:{kline['close']:.2f} 涨跌:{change:+.2f}%\n"
-
-    # 添加上次交易信号
-    signal_text = ""
-    if signal_history:
-        last_signal = signal_history[-1]
-        signal_text = f"\n【上次交易信号】\n信号: {last_signal.get('signal', 'N/A')}\n信心: {last_signal.get('confidence', 'N/A')}"
-
-    # 获取情绪数据
-    sentiment_data = get_sentiment_indicators()
-    # 简化情绪文本 多了没用
-    if sentiment_data:
-        sign = '+' if sentiment_data['net_sentiment'] >= 0 else ''
-        sentiment_text = f"【市场情绪】乐观{sentiment_data['positive_ratio']:.1%} 悲观{sentiment_data['negative_ratio']:.1%} 净值{sign}{sentiment_data['net_sentiment']:.3f}"
-    else:
-        sentiment_text = "【市场情绪】数据暂不可用"
-
-    # 添加当前持仓信息
-    current_pos = get_current_position()
-    position_text = "无持仓" if not current_pos else f"{current_pos['side']}仓, 数量: {current_pos['size']}, 盈亏: {current_pos['unrealized_pnl']:.2f}USDT"
-    pnl_text = f", 持仓盈亏: {current_pos['unrealized_pnl']:.2f} USDT" if current_pos else ""
-
-    prompt = f"""
-    你是一个专业的加密货币交易分析师。请基于以下BTC/USDT {TRADE_CONFIG['timeframe']}周期数据进行分析：
-
-    {kline_text}
-
-    {technical_analysis}
-
-    {signal_text}
-
-    {sentiment_text}  # 添加情绪分析
-
-    【当前行情】
-    - 当前价格: ${price_data['price']:,.2f}
-    - 时间: {price_data['timestamp']}
-    - 本K线最高: ${price_data['high']:,.2f}
-    - 本K线最低: ${price_data['low']:,.2f}
-    - 本K线成交量: {price_data['volume']:.2f} BTC
-    - 价格变化: {price_data['price_change']:+.2f}%
-    - 当前持仓: {position_text}{pnl_text}
-
-    【防频繁交易重要原则】
-    1. **趋势持续性优先**: 不要因单根K线或短期波动改变整体趋势判断
-    2. **持仓稳定性**: 除非趋势明确强烈反转，否则保持现有持仓方向
-    3. **反转确认**: 需要至少2-3个技术指标同时确认趋势反转才改变信号
-    4. **成本意识**: 减少不必要的仓位调整，每次交易都有成本
-
-    【交易指导原则 - 必须遵守】
-    1. **技术分析主导** (权重60%)：趋势、支撑阻力、K线形态是主要依据
-    2. **市场情绪辅助** (权重30%)：情绪数据用于验证技术信号，不能单独作为交易理由  
-    - 情绪与技术同向 → 增强信号信心
-    - 情绪与技术背离 → 以技术分析为主，情绪仅作参考
-    - 情绪数据延迟 → 降低权重，以实时技术指标为准
-    3. **风险管理** (权重10%)：考虑持仓、盈亏状况和止损位置
-    4. **趋势跟随**: 明确趋势出现时立即行动，不要过度等待
-    5. 因为做的是btc，做多权重可以大一点点
-    6. **信号明确性**:
-    - 强势上涨趋势 → BUY信号
-    - 强势下跌趋势 → SELL信号  
-    - 仅在窄幅震荡、无明确方向时 → HOLD信号
-    7. **技术指标权重**:
-    - 趋势(均线排列) > RSI > MACD > 布林带
-    - 价格突破关键支撑/阻力位是重要信号 
-
-
-    【当前技术状况分析】
-    - 整体趋势: {price_data['trend_analysis'].get('overall', 'N/A')}
-    - 短期趋势: {price_data['trend_analysis'].get('short_term', 'N/A')} 
-    - RSI状态: {price_data['technical_data'].get('rsi', 0):.1f} ({'超买' if price_data['technical_data'].get('rsi', 0) > 70 else '超卖' if price_data['technical_data'].get('rsi', 0) < 30 else '中性'})
-    - MACD方向: {price_data['trend_analysis'].get('macd', 'N/A')}
-
-    【智能仓位管理规则 - 必须遵守】
-
-    1. **减少过度保守**：
-       - 明确趋势中不要因轻微超买/超卖而过度HOLD
-       - RSI在30-70区间属于健康范围，不应作为主要HOLD理由
-       - 布林带位置在20%-80%属于正常波动区间
-
-    2. **趋势跟随优先**：
-       - 强势上涨趋势 + 任何RSI值 → 积极BUY信号
-       - 强势下跌趋势 + 任何RSI值 → 积极SELL信号
-       - 震荡整理 + 无明确方向 → HOLD信号
-
-    3. **突破交易信号**：
-       - 价格突破关键阻力 + 成交量放大 → 高信心BUY
-       - 价格跌破关键支撑 + 成交量放大 → 高信心SELL
-
-    4. **持仓优化逻辑**：
-       - 已有持仓且趋势延续 → 保持或BUY/SELL信号
-       - 趋势明确反转 → 及时反向信号
-       - 不要因为已有持仓而过度HOLD
-
-    【重要】请基于技术分析做出明确判断，避免因过度谨慎而错过趋势行情！
-
-    【分析要求】
-    基于以上分析，请给出明确的交易信号
-
-    请用以下JSON格式回复：
-    {{
-        "signal": "BUY|SELL|HOLD",
-        "reason": "简要分析理由(包含趋势判断和技术依据)",
-        "stop_loss": 具体价格,
-        "take_profit": 具体价格, 
-        "confidence": "HIGH|MEDIUM|LOW"
-    }}
-    """
-
+    """使用DeepSeek分析市场并生成交易信号（使用新模板系统）"""
     try:
+        # 1. 准备系统提示词
+        system_config = _prepare_system_config()
+        system_prompt = _builder.build_system_prompt(system_config)
+        
+        # 2. 转换币种数据
+        coin_data = _convert_price_data_to_coin_data(price_data)
+        
+        # 3. 准备用户提示词参数
+        user_params = _prepare_user_prompt_params(price_data, coin_data)
+        
+        # 4. 构建用户提示词
+        user_prompt = _builder.build_user_prompt(**user_params)
+        
+        # 5. 调用DeepSeek API
         response = deepseek_client.chat.completions.create(
             model="deepseek-chat",
             messages=[
-                {"role": "system",
-                 "content": f"您是一位专业的交易员，专注于{TRADE_CONFIG['timeframe']}周期趋势分析。请结合K线形态和技术指标做出判断，并严格遵循JSON格式要求。"},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
             stream=False,
             temperature=0.1
         )
-
-        # 安全解析JSON
+        
+        # 6. 解析响应
         result = response.choices[0].message.content
         print(f"DeepSeek原始回复: {result}")
-
+        
         # 提取JSON部分
         start_idx = result.find('{')
         end_idx = result.rfind('}') + 1
-
+        
         if start_idx != -1 and end_idx != 0:
             json_str = result[start_idx:end_idx]
             signal_data = safe_json_parse(json_str)
-
+            
             if signal_data is None:
                 signal_data = create_fallback_signal(price_data)
         else:
             signal_data = create_fallback_signal(price_data)
-
-        # 验证必需字段
+        
+        # 7. 适配输出格式（新格式可能不同）
+        # 新格式：signal可能是 "buy_to_enter" | "sell_to_enter" | "hold" | "close"
+        # 需要转换为旧的 "BUY" | "SELL" | "HOLD"
+        if signal_data and 'signal' in signal_data:
+            signal_mapping = {
+                'buy_to_enter': 'BUY',
+                'sell_to_enter': 'SELL',
+                'hold': 'HOLD',
+                'close': 'HOLD'  # close也视为HOLD
+            }
+            original_signal = signal_data['signal']
+            signal_data['signal'] = signal_mapping.get(original_signal, original_signal.upper())
+            
+            # 适配confidence格式（如果是0-1浮点数，转换为HIGH|MEDIUM|LOW）
+            if 'confidence' in signal_data:
+                conf = signal_data['confidence']
+                if isinstance(conf, (int, float)):
+                    if conf >= 0.7:
+                        signal_data['confidence'] = 'HIGH'
+                    elif conf >= 0.4:
+                        signal_data['confidence'] = 'MEDIUM'
+                    else:
+                        signal_data['confidence'] = 'LOW'
+        
+        # 8. 验证必需字段（保持原有格式）
         required_fields = ['signal', 'reason', 'stop_loss', 'take_profit', 'confidence']
         if not all(field in signal_data for field in required_fields):
+            # 如果没有reason字段，从justification获取
+            if 'justification' in signal_data and 'reason' not in signal_data:
+                signal_data['reason'] = signal_data['justification']
+            # 补充缺失字段
             signal_data = create_fallback_signal(price_data)
-
-        # 保存信号到历史记录
+        
+        # 9. 保存信号到历史记录
         signal_data['timestamp'] = price_data['timestamp']
         signal_history.append(signal_data)
         if len(signal_history) > 30:
             signal_history.pop(0)
-
-        # 信号统计
+        
+        # 10. 信号统计
         signal_count = len([s for s in signal_history if s.get('signal') == signal_data['signal']])
         total_signals = len(signal_history)
         print(f"信号统计: {signal_data['signal']} (最近{total_signals}次中出现{signal_count}次)")
-
-        # 信号连续性检查
+        
+        # 11. 信号连续性检查
         if len(signal_history) >= 3:
             last_three = [s['signal'] for s in signal_history[-3:]]
             if len(set(last_three)) == 1:
                 print(f"⚠️ 注意：连续3次{signal_data['signal']}信号")
-
+        
         return signal_data
-
+        
     except Exception as e:
         print(f"DeepSeek分析失败: {e}")
+        import traceback
+        traceback.print_exc()
         return create_fallback_signal(price_data)
 
 
@@ -190,17 +395,16 @@ def analyze_with_deepseek_with_retry(price_data, max_retries=2):
             signal_data = analyze_with_deepseek(price_data)
             if signal_data and not signal_data.get('is_fallback', False):
                 return signal_data
-
+            
             print(f"第{attempt + 1}次尝试失败，进行重试...")
             import time
             time.sleep(1)
-
+            
         except Exception as e:
             print(f"第{attempt + 1}次尝试异常: {e}")
             if attempt == max_retries - 1:
                 return create_fallback_signal(price_data)
             import time
             time.sleep(1)
-
+    
     return create_fallback_signal(price_data)
-

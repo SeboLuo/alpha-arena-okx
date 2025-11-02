@@ -146,3 +146,53 @@ def generate_technical_analysis_text(price_data):
     """
     return analysis_text
 
+
+def calculate_rsi_series(df, period=14):
+    """计算RSI序列"""
+    try:
+        delta = df['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi.fillna(50).tolist()  # 填充NaN为50（中性）
+    except Exception as e:
+        print(f"RSI序列计算失败: {e}")
+        return [50] * len(df)
+
+
+def calculate_ema_series(df, period=20):
+    """计算EMA序列"""
+    try:
+        ema = df['close'].ewm(span=period, adjust=False).mean()
+        return ema.fillna(df['close']).tolist()
+    except Exception as e:
+        print(f"EMA序列计算失败: {e}")
+        return df['close'].tolist()
+
+
+def calculate_macd_series(df):
+    """计算MACD序列"""
+    try:
+        ema_12 = df['close'].ewm(span=12).mean()
+        ema_26 = df['close'].ewm(span=26).mean()
+        macd = ema_12 - ema_26
+        return macd.fillna(0).tolist()
+    except Exception as e:
+        print(f"MACD序列计算失败: {e}")
+        return [0] * len(df)
+
+
+def calculate_atr_series(df, period=14):
+    """计算ATR序列"""
+    try:
+        high_low = df['high'] - df['low']
+        high_close = abs(df['high'] - df['close'].shift())
+        low_close = abs(df['low'] - df['close'].shift())
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        atr = tr.rolling(period).mean()
+        return atr.fillna(tr).tolist()
+    except Exception as e:
+        print(f"ATR序列计算失败: {e}")
+        return [0] * len(df)
+
