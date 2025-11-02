@@ -28,14 +28,8 @@ TRADE_CONFIG = {
     'leverage': 10,  # 杠杆倍数,只影响保证金不影响下单价值
     'timeframe': '3m',  # 使用3分钟K线
     'interval_minutes': 3,  # 执行间隔（分钟），服务将在此时间间隔的整点执行
-    'test_mode': False,  # 真实交易模式（固定为False，模拟交易在bot_sim模块中）
-    'data_points': 96,  # 96根timeframe周期的K线
-    'analysis_periods': {
-        'short_term': 20,  # 短期均线
-        'medium_term': 50,  # 中期均线
-        'long_term': 96  # 长期趋势
-    },
-    # 新增智能仓位参数
+    'data_points': 96,  # 96根timeframe周期的K线（用于获取历史K线数据）
+    # 智能仓位参数
     'position_management': {
         'enable_intelligent_position': True,  # 🆕 新增：是否启用智能仓位管理
         'base_usdt_amount': 100,  # USDT投入下单基数

@@ -18,16 +18,10 @@ TRADE_CONFIG = {
     'leverage': 10,  # 杠杆倍数,只影响保证金不影响下单价值
     'timeframe': '3m',  # 使用3分钟K线
     'interval_minutes': 3,  # 执行间隔（分钟），服务将在此时间间隔的整点执行
-    'test_mode': True,  # 模拟交易模式（固定为True）
-    'data_points': 96,  # 96根timeframe周期的K线
+    'data_points': 96,  # 96根timeframe周期的K线（用于获取历史K线数据）
     'contract_size': 0.01,  # 合约乘数（BTC/USDT永续合约通常是0.01）
     'min_amount': 0.01,  # 最小交易量
     'initial_balance': 10000,  # 模拟账户初始余额（USDT），与实盘配置方式保持一致
-    'analysis_periods': {
-        'short_term': 20,  # 短期均线
-        'medium_term': 50,  # 中期均线
-        'long_term': 96  # 长期趋势
-    },
     # 智能仓位参数（与实盘保持一致）
     'position_management': {
         'enable_intelligent_position': True,  # 是否启用智能仓位管理

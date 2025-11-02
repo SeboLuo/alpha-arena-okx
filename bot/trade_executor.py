@@ -43,13 +43,9 @@ def execute_intelligent_trade(signal_data, price_data):
     print(f"理由: {signal_data['reason']}")
     print(f"当前持仓: {current_position}")
 
-    # 风险管理
-    if signal_data['confidence'] == 'LOW' and not TRADE_CONFIG['test_mode']:
+    # 风险管理：实盘模式下，低信心信号跳过执行（模拟盘允许低信心信号用于测试）
+    if signal_data['confidence'] == 'LOW':
         print("⚠️ 低信心信号，跳过执行")
-        return
-
-    if TRADE_CONFIG['test_mode']:
-        print("测试模式 - 仅模拟交易")
         return
 
     try:
