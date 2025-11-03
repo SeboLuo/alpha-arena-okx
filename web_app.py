@@ -41,15 +41,16 @@ def get_system_status():
 
 @app.route('/api/trade-history')
 def get_trade_history():
-    """获取交易历史（支持分页）"""
+    """获取交易历史（支持分页和过滤HOLD交易）"""
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
+    show_hold = request.args.get('show_hold', 'false').lower() == 'true'  # 默认不显示HOLD
     
     # 限制每页最大数量
     page_size = min(page_size, 100)
     page = max(page, 1)
     
-    result = data_manager.get_trade_history(page=page, page_size=page_size)
+    result = data_manager.get_trade_history(page=page, page_size=page_size, show_hold=show_hold)
     return jsonify(result)
 
 @app.route('/api/performance')

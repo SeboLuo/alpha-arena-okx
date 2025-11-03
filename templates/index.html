@@ -149,7 +149,13 @@
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- 最近交易记录 -->
             <div class="bg-white rounded-xl shadow-lg p-6">
-                <h3 class="text-lg font-semibold text-gray-700 mb-4">最近交易记录</h3>
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold text-gray-700">最近交易记录</h3>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" id="showHoldTrades" class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500">
+                        <span class="text-sm text-gray-600">显示Hold交易</span>
+                    </label>
+                </div>
                 <div class="overflow-y-auto max-h-96 mb-4">
                     <table class="w-full text-sm">
                         <thead>
@@ -288,6 +294,14 @@
             initializeCharts();
             loadData();
             setupPaginationHandlers();
+            
+            // 设置"显示Hold交易"复选框的事件监听
+            document.getElementById('showHoldTrades').addEventListener('change', function() {
+                // 切换过滤条件时，重置到第一页
+                tradePageState.currentPage = 1;
+                loadTradeHistory(); // 重新加载交易历史，应用过滤条件
+            });
+            
             setInterval(loadData, 5000); // 每5秒更新一次数据
         });
         
@@ -455,14 +469,33 @@
         // 加载交易历史（分页）
         async function loadTradeHistory() {
             try {
-                const response = await fetch(`/api/trade-history?page=${tradePageState.currentPage}&page_size=${tradePageState.pageSize}`);
+                // 获取"显示Hold交易"复选框的状态
+                const showHoldTrades = document.getElementById('showHoldTrades').checked;
+                
+                const response = await fetch(`/api/trade-history?page=${tradePageState.currentPage}&page_size=${tradePageState.pageSize}&show_hold=${showHoldTrades}`);
                 const result = await response.json();
                 
                 // 更新分页状态
-                tradePageState.total = result.total || 0;
-                tradePageState.totalPages = result.total_pages || 0;
+                const newTotal = result.total || 0;
+                const newTotalPages = result.total_pages || 0;
                 
-                // 更新UI
+                // 如果当前页码超过新的总页数，重置到最后一页
+                if (tradePageState.currentPage > newTotalPages && newTotalPages > 0) {
+                    tradePageState.currentPage = newTotalPages;
+                    // 重新加载数据（使用修正后的页码）
+                    const retryResponse = await fetch(`/api/trade-history?page=${tradePageState.currentPage}&page_size=${tradePageState.pageSize}&show_hold=${showHoldTrades}`);
+                    const retryResult = await retryResponse.json();
+                    tradePageState.total = retryResult.total || 0;
+                    tradePageState.totalPages = retryResult.total_pages || 0;
+                    updateTradeHistory(retryResult);
+                    updateTradePagination();
+                    return;
+                }
+                
+                tradePageState.total = newTotal;
+                tradePageState.totalPages = newTotalPages;
+                
+                // 更新UI（后端已经过滤，前端直接显示）
                 updateTradeHistory(result);
                 updateTradePagination();
 
@@ -490,10 +523,11 @@
             }
         }
 
-        // 加载图表数据（需要全部数据）
+        // 加载图表数据（需要全部数据，不显示HOLD交易）
         async function loadChartData() {
             try {
-                const tradeHistoryResponse = await fetch('/api/trade-history?page=1&page_size=100');
+                // 图表数据不包含HOLD交易，保持与交易列表一致
+                const tradeHistoryResponse = await fetch('/api/trade-history?page=1&page_size=100&show_hold=false');
                 const tradeHistoryResult = await tradeHistoryResponse.json();
                 const allTrades = tradeHistoryResult.data || [];
                 
@@ -630,7 +664,8 @@
             tbody.innerHTML = '';
 
             const trades = result.data || [];
-
+            
+            // 后端已经根据show_hold参数过滤了，前端直接显示
             trades.forEach(trade => {
                 const row = document.createElement('tr');
                 row.className = 'border-b';

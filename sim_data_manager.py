@@ -407,25 +407,51 @@ class SimDataManager:
         # 更新绩效数据
         self._update_performance(trade_record)
     
-    def get_trade_history(self, page: int = 1, page_size: int = 10):
-        """获取模拟交易历史（支持分页）"""
+    def get_trade_history(self, page: int = 1, page_size: int = 10, show_hold: bool = False):
+        """获取模拟交易历史（支持分页和过滤HOLD交易）
+        
+        Args:
+            page: 页码，从1开始
+            page_size: 每页数量
+            show_hold: 是否显示HOLD交易，默认False（不显示）
+            
+        Returns:
+            dict: {
+                'data': 交易记录列表,
+                'total': 总记录数（过滤后）,
+                'page': 当前页码,
+                'page_size': 每页数量,
+                'total_pages': 总页数（过滤后）
+            }
+        """
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # 获取总记录数
-        cursor.execute('SELECT COUNT(*) FROM sim_trades')
+        # 获取总记录数（应用过滤条件）
+        if not show_hold:
+            cursor.execute('SELECT COUNT(*) FROM sim_trades WHERE signal != ? OR signal IS NULL', ('HOLD',))
+        else:
+            cursor.execute('SELECT COUNT(*) FROM sim_trades')
         total = cursor.fetchone()[0]
         
         # 计算分页
         offset = (page - 1) * page_size
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
         
-        # 获取分页数据
-        cursor.execute('''
-            SELECT * FROM sim_trades 
-            ORDER BY created_at DESC 
-            LIMIT ? OFFSET ?
-        ''', (page_size, offset))
+        # 获取分页数据（应用过滤条件）
+        if not show_hold:
+            cursor.execute('''
+                SELECT * FROM sim_trades 
+                WHERE signal != ? OR signal IS NULL
+                ORDER BY created_at DESC 
+                LIMIT ? OFFSET ?
+            ''', ('HOLD', page_size, offset))
+        else:
+            cursor.execute('''
+                SELECT * FROM sim_trades 
+                ORDER BY created_at DESC 
+                LIMIT ? OFFSET ?
+            ''', (page_size, offset))
         
         rows = cursor.fetchall()
         conn.close()
