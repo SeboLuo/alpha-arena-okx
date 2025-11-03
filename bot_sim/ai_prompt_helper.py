@@ -26,10 +26,20 @@ def _prepare_user_prompt_params_sim(price_data, coin_data):
     positions = []
     if current_pos:
         # 计算未实现盈亏
+        current_price = float(price_data['price'])
+        entry_price = current_pos['entry_price']
+        position_size = current_pos['size']
+        contract_size_value = TRADE_CONFIG.get('contract_size', 0.01)
+        
         if current_pos['side'] == 'long':
-            unrealized_pnl = (float(price_data['price']) - current_pos['entry_price']) * current_pos['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+            unrealized_pnl = (current_price - entry_price) * position_size * contract_size_value
         else:  # short
-            unrealized_pnl = (current_pos['entry_price'] - float(price_data['price'])) * current_pos['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+            unrealized_pnl = (entry_price - current_price) * position_size * contract_size_value
+        
+        print(f"[模拟] AI提示词持仓计算:")
+        print(f"[模拟]   entry_price: {entry_price:.2f}, current_price: {current_price:.2f}")
+        print(f"[模拟]   size: {position_size:.2f} 张")
+        print(f"[模拟]   未实现盈亏: {unrealized_pnl:.4f} USDT")
         
         # 将合约张数转换为币数量（AI期望的quantity单位）
         # 合约张数存储在current_pos['size']中，需要转换为币数量

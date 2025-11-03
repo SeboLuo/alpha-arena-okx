@@ -349,7 +349,34 @@
                             title: { display: true, text: '交易次数' }
                         },
                         y: {
-                            title: { display: true, text: '价格(USDT)' }
+                            title: { display: true, text: '价格(USDT)' },
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString('zh-CN', { 
+                                        minimumFractionDigits: 2, 
+                                        maximumFractionDigits: 2 
+                                    });
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = '价格: ';
+                                    if (context.parsed.y) {
+                                        label += '$' + context.parsed.y.toLocaleString('zh-CN', { 
+                                            minimumFractionDigits: 2, 
+                                            maximumFractionDigits: 2 
+                                        });
+                                    }
+                                    if (context.raw && context.raw.timestamp) {
+                                        label += '\n时间: ' + context.raw.timestamp;
+                                    }
+                                    return label;
+                                }
+                            }
                         }
                     }
                 }
@@ -473,7 +500,7 @@
                 const performanceResponse = await fetch('/api/performance');
                 const performance = await performanceResponse.json();
                 
-                updateCharts(allTrades, performance);
+                await updateCharts(allTrades, performance);
             } catch (error) {
                 console.error('加载图表数据失败:', error);
             }
@@ -659,15 +686,34 @@
         }
 
         // 更新图表
-        function updateCharts(trades, performance) {
-            // 更新价格图表（使用全部交易数据）
-            const priceData = trades.map((trade, index) => ({
-                x: index,
-                y: trade.price
-            })).filter(d => d.y);
+        async function updateCharts(trades, performance) {
+            // 更新价格图表：直接使用交易记录中的价格（这是执行交易时的实际价格）
+            // 确保价格是数字类型，并过滤掉无效数据
+            // 重要：将数据反转顺序，因为数据库查询是按时间倒序的（最新的在前），
+            // 但图表应该按时间正序显示（最早的在前，最新的在后，在右边）
+            const sortedTrades = [...trades].reverse();
+            
+            const priceData = sortedTrades
+                .map((trade, index) => {
+                    // 确保价格是数字类型
+                    const price = parseFloat(trade.price);
+                    if (isNaN(price) || price <= 0) {
+                        return null;
+                    }
+                    return {
+                        x: index,
+                        y: price,
+                        timestamp: trade.timestamp || ''
+                    };
+                })
+                .filter(d => d !== null);
 
-            priceChart.data.datasets[0].data = priceData;
-            priceChart.update('none');
+            if (priceData.length > 0) {
+                priceChart.data.datasets[0].data = priceData;
+                priceChart.update('none');
+            } else {
+                console.warn('没有有效的价格数据用于图表');
+            }
 
             // 更新绩效图表
             if (performance.daily_pnl) {

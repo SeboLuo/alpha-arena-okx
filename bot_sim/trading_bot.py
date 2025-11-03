@@ -64,24 +64,32 @@ def trading_bot():
     
     if current_position:
         # 计算未实现盈亏（需要当前价格）
+        current_price = price_data['price']
+        entry_price = current_position['entry_price']
+        position_size = current_position['size']
+        contract_size_value = TRADE_CONFIG.get('contract_size', 0.01)
+        
         if current_position['side'] == 'long':
-            unrealized_pnl = (price_data['price'] - current_position['entry_price']) * current_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+            unrealized_pnl = (current_price - entry_price) * position_size * contract_size_value
         else:  # short
-            unrealized_pnl = (current_position['entry_price'] - price_data['price']) * current_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+            unrealized_pnl = (entry_price - current_price) * position_size * contract_size_value
         
         # 计算占用保证金：合约价值 / 杠杆
         # 合约价值 = 持仓数量 * 当前价格 * 合约乘数
-        position_value = current_position['size'] * price_data['price'] * TRADE_CONFIG.get('contract_size', 0.01)
+        position_value = position_size * current_price * contract_size_value
         used_margin = position_value / leverage
         
         position_info = {
             'side': current_position['side'],
-            'size': current_position['size'],
-            'entry_price': current_position['entry_price'],
+            'size': position_size,
+            'entry_price': entry_price,
             'unrealized_pnl': unrealized_pnl
         }
         print(f"[模拟] 当前持仓: {position_info['side']} {position_info['size']:.2f} 张")
+        print(f"[模拟] 入场价格: {entry_price:.2f} USDT")
+        print(f"[模拟] 当前价格: {current_price:.2f} USDT")
         print(f"[模拟] 占用保证金: {used_margin:.2f} USDT, 未实现盈亏: {unrealized_pnl:+.2f} USDT")
+        print(f"[模拟] 未实现盈亏计算: ({current_price} - {entry_price}) * {position_size} * {contract_size_value} = {unrealized_pnl:.4f}")
     
     # 计算账户净值（Equity）= 总余额 + 未实现盈亏
     equity = base_balance + unrealized_pnl
@@ -155,21 +163,33 @@ def trading_bot():
         
         if updated_position:
             # 重新计算未实现盈亏
+            updated_current_price = price_data['price']
+            updated_entry_price = updated_position['entry_price']
+            updated_size = updated_position['size']
+            contract_size_value = TRADE_CONFIG.get('contract_size', 0.01)
+            
             if updated_position['side'] == 'long':
-                updated_unrealized_pnl = (price_data['price'] - updated_position['entry_price']) * updated_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+                updated_unrealized_pnl = (updated_current_price - updated_entry_price) * updated_size * contract_size_value
             else:  # short
-                updated_unrealized_pnl = (updated_position['entry_price'] - price_data['price']) * updated_position['size'] * TRADE_CONFIG.get('contract_size', 0.01)
+                updated_unrealized_pnl = (updated_entry_price - updated_current_price) * updated_size * contract_size_value
             
             # 重新计算占用保证金
-            updated_position_value = updated_position['size'] * price_data['price'] * TRADE_CONFIG.get('contract_size', 0.01)
+            updated_position_value = updated_size * updated_current_price * contract_size_value
             updated_used_margin = updated_position_value / TRADE_CONFIG['leverage']
             
             updated_position_info = {
                 'side': updated_position['side'],
-                'size': updated_position['size'],
-                'entry_price': updated_position['entry_price'],
+                'size': updated_size,
+                'entry_price': updated_entry_price,
                 'unrealized_pnl': updated_unrealized_pnl
             }
+            
+            print(f"[模拟] 交易后持仓详情:")
+            print(f"[模拟]   入场价格: {updated_entry_price:.2f} USDT (交易后更新)")
+            print(f"[模拟]   当前价格: {updated_current_price:.2f} USDT")
+            print(f"[模拟]   持仓数量: {updated_size:.2f} 张")
+            print(f"[模拟]   未实现盈亏: {updated_unrealized_pnl:+.4f} USDT")
+            print(f"[模拟]   计算: ({updated_current_price} - {updated_entry_price}) * {updated_size} * {contract_size_value} = {updated_unrealized_pnl:.4f}")
         
         # 重新计算账户净值和可用余额
         updated_equity = updated_base_balance + updated_unrealized_pnl
