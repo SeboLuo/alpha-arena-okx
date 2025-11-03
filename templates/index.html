@@ -338,6 +338,71 @@
             });
         }
 
+        // 自定义插件：在买卖点上绘制'b'和's'标签
+        const drawBuySellLabelsPlugin = {
+            id: 'drawBuySellLabels',
+            afterDraw: function(chart) {
+                const ctx = chart.ctx;
+                const datasets = chart.data.datasets;
+                
+                // 绘制买入点标签（数据集索引1）
+                if (datasets[1] && datasets[1].data.length > 0) {
+                    const meta = chart.getDatasetMeta(1);
+                    datasets[1].data.forEach((point, pointIndex) => {
+                        if (meta.data && meta.data[pointIndex]) {
+                            const {x, y} = meta.data[pointIndex];
+                            ctx.save();
+                            ctx.font = 'bold 12px Arial';
+                            ctx.fillStyle = '#10b981';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText('b', x, y);
+                            ctx.restore();
+                        }
+                    });
+                }
+                
+                // 绘制卖出点标签（数据集索引2）
+                if (datasets[2] && datasets[2].data.length > 0) {
+                    const meta = chart.getDatasetMeta(2);
+                    datasets[2].data.forEach((point, pointIndex) => {
+                        if (meta.data && meta.data[pointIndex]) {
+                            const {x, y} = meta.data[pointIndex];
+                            ctx.save();
+                            ctx.font = 'bold 12px Arial';
+                            ctx.fillStyle = '#ef4444';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText('s', x, y);
+                            ctx.restore();
+                        }
+                    });
+                }
+                
+                // 绘制平仓点标签（数据集索引3）
+                if (datasets[3] && datasets[3].data.length > 0) {
+                    const meta = chart.getDatasetMeta(3);
+                    datasets[3].data.forEach((point, pointIndex) => {
+                        if (meta.data && meta.data[pointIndex]) {
+                            const {x, y} = meta.data[pointIndex];
+                            ctx.save();
+                            ctx.font = 'bold 12px Arial';
+                            ctx.fillStyle = '#f59e0b';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText('c', x, y);
+                            ctx.restore();
+                        }
+                    });
+                }
+            }
+        };
+        
+        // 尝试注册插件（Chart.js 3.x+）
+        if (typeof Chart !== 'undefined' && Chart.register) {
+            Chart.register(drawBuySellLabelsPlugin);
+        }
+
         // 初始化图表
         function initializeCharts() {
             // 价格走势图
@@ -351,7 +416,35 @@
                         borderColor: '#3b82f6',
                         backgroundColor: 'rgba(59, 130, 246, 0.1)',
                         tension: 0.4,
-                        fill: true
+                        fill: true,
+                        pointRadius: 0  // 隐藏线上的点
+                    }, {
+                        label: '买入点',
+                        data: [],
+                        type: 'scatter',
+                        pointRadius: 6,
+                        pointBackgroundColor: '#10b981',
+                        pointBorderColor: '#10b981',
+                        pointBorderWidth: 2,
+                        showLine: false
+                    }, {
+                        label: '卖出点',
+                        data: [],
+                        type: 'scatter',
+                        pointRadius: 6,
+                        pointBackgroundColor: '#ef4444',
+                        pointBorderColor: '#ef4444',
+                        pointBorderWidth: 2,
+                        showLine: false
+                    }, {
+                        label: '平仓点',
+                        data: [],
+                        type: 'scatter',
+                        pointRadius: 6,
+                        pointBackgroundColor: '#f59e0b',
+                        pointBorderColor: '#f59e0b',
+                        pointBorderWidth: 2,
+                        showLine: false
                     }]
                 },
                 options: {
@@ -388,10 +481,32 @@
                                     if (context.raw && context.raw.timestamp) {
                                         label += '\n时间: ' + context.raw.timestamp;
                                     }
+                                    if (context.datasetIndex === 1) {
+                                        label = '买入: ' + label;
+                                    } else if (context.datasetIndex === 2) {
+                                        label = '卖出: ' + label;
+                                    } else if (context.datasetIndex === 3) {
+                                        label = '平仓: ' + label;
+                                    }
                                     return label;
                                 }
                             }
+                        },
+                        legend: {
+                            display: true,
+                            labels: {
+                                filter: function(legendItem, chartData) {
+                                    // 只显示价格线和图例，不显示买卖平点的图例（除非有数据）
+                                    return legendItem.datasetIndex === 0 || 
+                                           (legendItem.datasetIndex === 1 && chartData.datasets[1].data.length > 0) ||
+                                           (legendItem.datasetIndex === 2 && chartData.datasets[2].data.length > 0) ||
+                                           (legendItem.datasetIndex === 3 && chartData.datasets[3].data.length > 0);
+                                }
+                            }
                         }
+                    },
+                    animation: {
+                        duration: 0  // 禁用动画以提高性能
                     }
                 }
             });
@@ -743,8 +858,43 @@
                 })
                 .filter(d => d !== null);
 
+            // 分别提取买入点、卖出点和平仓点
+            const buyPoints = [];
+            const sellPoints = [];
+            const closePoints = [];
+            
+            sortedTrades.forEach((trade, index) => {
+                const price = parseFloat(trade.price);
+                if (!isNaN(price) && price > 0) {
+                    const point = {
+                        x: index,
+                        y: price,
+                        timestamp: trade.timestamp || ''
+                    };
+                    
+                    const signal = (trade.signal || '').toUpperCase();
+                    const positionAction = (trade.position_action || '').toLowerCase();
+                    
+                    // 识别CLOSE：通过signal='CLOSE'或position_action='close'
+                    if (signal === 'CLOSE' || positionAction === 'close') {
+                        closePoints.push(point);
+                    } else if (signal === 'BUY') {
+                        buyPoints.push(point);
+                    } else if (signal === 'SELL') {
+                        sellPoints.push(point);
+                    }
+                }
+            });
+
             if (priceData.length > 0) {
+                // 更新价格线数据
                 priceChart.data.datasets[0].data = priceData;
+                // 更新买入点数据
+                priceChart.data.datasets[1].data = buyPoints;
+                // 更新卖出点数据
+                priceChart.data.datasets[2].data = sellPoints;
+                // 更新平仓点数据
+                priceChart.data.datasets[3].data = closePoints;
                 priceChart.update('none');
             } else {
                 console.warn('没有有效的价格数据用于图表');
