@@ -17,13 +17,17 @@ def execute_intelligent_trade(signal_data, price_data):
     # 完全使用AI返回的quantity和leverage，如果无效则停止交易
     signal = signal_data.get('signal', '').upper()
     
-    # HOLD和CLOSE信号不需要quantity和leverage
+    # HOLD和CLOSE信号不需要quantity和leverage，但需要初始化position_size用于后续记录
+    position_size = 0  # 默认值，用于HOLD和CLOSE信号
     if signal in ['HOLD', 'CLOSE']:
         print(f"[模拟] 交易信号: {signal_data['signal']}")
         print(f"[模拟] 信心程度: {signal_data['confidence']}")
         print(f"[模拟] 理由: {signal_data['reason']}")
         print(f"[模拟] 当前持仓: {current_position}")
         # HOLD和CLOSE可以直接执行，不需要验证quantity和leverage
+        # 如果当前有持仓，使用当前持仓的size作为position_size（用于记录）
+        if current_position:
+            position_size = current_position.get('size', 0)
     else:
         # BUY和SELL信号必须要有有效的quantity和leverage
         ai_quantity = signal_data.get('quantity')
@@ -397,8 +401,16 @@ def execute_intelligent_trade(signal_data, price_data):
                 # 保存交易记录（包括开仓、平仓、加仓、减仓、保持）
                 # 现在 position_action 可以是: 'open', 'close', 'add', 'reduce', 'hold'
                 if position_action:  # 确保有操作记录
-                    # 对于加仓/减仓，记录实际交易的数量
-                    amount_to_record = trade_amount if trade_amount > 0 else (current_position['size'] if current_position else position_size)
+                    # 对于加仓/减仓/保持，记录实际交易的数量
+                    # 优先级：trade_amount > current_position['size'] > position_size > 0
+                    if trade_amount > 0:
+                        amount_to_record = trade_amount
+                    elif current_position and current_position.get('size', 0) > 0:
+                        amount_to_record = current_position['size']
+                    elif position_size > 0:
+                        amount_to_record = position_size
+                    else:
+                        amount_to_record = 0
                     
                     trade_record = {
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),

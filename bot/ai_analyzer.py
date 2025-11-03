@@ -338,10 +338,17 @@ def _prepare_user_prompt_params(price_data, coin_data, position_data=None, accou
         symbol_parts = raw_symbol.split('/')
         coin_symbol = symbol_parts[0] if len(symbol_parts) > 0 else 'BTC'
         
+        # 将合约张数转换为币数量（AI期望的quantity单位）
+        # 合约张数存储在current_pos['size']中，需要转换为币数量
+        contract_size_value = TRADE_CONFIG.get('contract_size', 0.01)  # 合约乘数（1张=0.01 BTC）
+        size_in_contracts = current_pos.get('size', 0)  # 合约张数
+        quantity_in_coins = size_in_contracts * contract_size_value  # 币数量
+        
         positions = [{
             'symbol': coin_symbol,  # 使用币种名称（如BTC），而不是完整交易对
             'side': current_pos.get('side', 'long'),
-            'size': current_pos.get('size', 0),
+            'quantity': quantity_in_coins,  # 使用币数量，与AI返回的quantity单位一致
+            'size': size_in_contracts,  # 保留原始合约张数（向后兼容）
             'entry_price': current_pos.get('entry_price', 0),
             'current_price': float(price_data['price']),
             'unrealized_pnl': current_pos.get('unrealized_pnl', 0),
