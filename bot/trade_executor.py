@@ -2,7 +2,7 @@
 import time
 from datetime import datetime
 from .config import exchange, TRADE_CONFIG
-from .position_manager import get_current_position, calculate_intelligent_position
+from .position_manager import get_current_position
 from data_manager import save_trade_record
 
 
@@ -34,19 +34,188 @@ def execute_intelligent_trade(signal_data, price_data):
         #             print(f"🔒 近期已出现{signal_data['signal']}信号，避免频繁反转")
         #             return
 
-    # 计算智能仓位
-    position_size = calculate_intelligent_position(signal_data, price_data, current_position)
+    # 完全使用AI返回的quantity和leverage，如果无效则停止交易
+    signal = signal_data.get('signal', '').upper()
+    
+    # HOLD和CLOSE信号不需要quantity和leverage
+    if signal in ['HOLD', 'CLOSE']:
+        print(f"交易信号: {signal_data['signal']}")
+        print(f"信心程度: {signal_data['confidence']}")
+        print(f"理由: {signal_data['reason']}")
+        print(f"当前持仓: {current_position}")
+        # HOLD和CLOSE可以直接执行，不需要验证quantity和leverage
+    else:
+        # BUY和SELL信号必须要有有效的quantity和leverage
+        ai_quantity = signal_data.get('quantity')
+        ai_leverage = signal_data.get('leverage')
+        
+        # 验证quantity
+        if ai_quantity is None:
+            print(f"❌ AI策略无效：缺少quantity字段")
+            print(f"   交易信号: {signal_data['signal']}")
+            print(f"   停止交易，等待下次AI信号")
+            return
+        
+        if not isinstance(ai_quantity, (int, float)) or ai_quantity <= 0:
+            print(f"❌ AI策略无效：quantity值无效 ({ai_quantity})")
+            print(f"   交易信号: {signal_data['signal']}")
+            print(f"   停止交易，等待下次AI信号")
+            return
+        
+        # 验证leverage
+        if ai_leverage is None:
+            print(f"❌ AI策略无效：缺少leverage字段")
+            print(f"   交易信号: {signal_data['signal']}")
+            print(f"   停止交易，等待下次AI信号")
+            return
+        
+        if not isinstance(ai_leverage, (int, float)):
+            print(f"❌ AI策略无效：leverage类型错误 ({type(ai_leverage)})")
+            print(f"   交易信号: {signal_data['signal']}")
+            print(f"   停止交易，等待下次AI信号")
+            return
+        
+        ai_leverage = int(ai_leverage)
+        if not (1 <= ai_leverage <= 20):
+            print(f"❌ AI策略无效：leverage值超出有效范围 ({ai_leverage})，有效范围: 1-20")
+            print(f"   交易信号: {signal_data['signal']}")
+            print(f"   停止交易，等待下次AI信号")
+            return
+        
+        # AI返回的quantity是币的数量（如BTC数量），需要转换为合约张数
+        # 合约张数 = 币的数量 / 合约乘数
+        contract_size = TRADE_CONFIG.get('contract_size', 0.01)  # 默认0.01（1张=0.01 BTC）
+        
+        # 将币数量转换为合约张数
+        position_size_coins = float(ai_quantity)
+        position_size = position_size_coins / contract_size
+        
+        # 验证转换后的仓位是否合理
+        max_reasonable_contracts = 1000  # 假设最大合理仓位是1000张
+        if position_size > max_reasonable_contracts:
+            print(f"❌ AI策略无效：quantity({position_size_coins}币)转换后仓位({position_size:.2f}张)过大")
+            print(f"   交易信号: {signal_data['signal']}")
+            print(f"   停止交易，等待下次AI信号")
+            return
+        
+        # 精度处理：OKX BTC合约最小交易单位为0.01张
+        position_size = round(position_size, 2)
+        
+        # 确保最小交易量
+        min_contracts = TRADE_CONFIG.get('min_amount', 0.01)
+        if position_size < min_contracts:
+            print(f"⚠️ AI返回的仓位({position_size:.2f}张)小于最小值({min_contracts}张)，调整为最小值")
+            position_size = min_contracts
+        
+        # 验证账户余额是否足够支付保证金
+        try:
+            balance = exchange.fetch_balance()
+            available_balance = float(balance['USDT'].get('free', 0))  # 可用余额
+            
+            # 计算合约价值（开仓方向调整仓位时，只计算新增部分的保证金）
+            contract_size = TRADE_CONFIG.get('contract_size', 0.01)
+            current_price = price_data['price']
+            
+            # 如果已有同方向持仓，计算需要调整的仓位
+            if current_position and current_position['side'] == 'long' and signal == 'BUY':
+                # 做多加仓：计算新增部分的保证金
+                size_diff = position_size - current_position['size']
+                if size_diff > 0:
+                    # 加仓：只需要新增部分的保证金
+                    contract_value = size_diff * current_price * contract_size
+                    required_margin = contract_value / ai_leverage
+                else:
+                    # 减仓：不需要额外保证金
+                    contract_value = 0
+                    required_margin = 0
+            elif current_position and current_position['side'] == 'short' and signal == 'SELL':
+                # 做空加仓：计算新增部分的保证金
+                size_diff = position_size - current_position['size']
+                if size_diff > 0:
+                    # 加仓：只需要新增部分的保证金
+                    contract_value = size_diff * current_price * contract_size
+                    required_margin = contract_value / ai_leverage
+                else:
+                    # 减仓：不需要额外保证金
+                    contract_value = 0
+                    required_margin = 0
+            elif current_position and ((current_position['side'] == 'short' and signal == 'BUY') or 
+                                        (current_position['side'] == 'long' and signal == 'SELL')):
+                # 方向反转：需要先平仓（可能有盈亏），然后开新仓
+                # 需要新仓位的全额保证金
+                contract_value = position_size * current_price * contract_size
+                required_margin = contract_value / ai_leverage
+            else:
+                # 无持仓或开新仓：需要全额保证金
+                contract_value = position_size * current_price * contract_size
+                required_margin = contract_value / ai_leverage
+            
+            # 验证余额是否足够（留5%的安全边际）
+            safety_margin = 1.05
+            required_with_safety = required_margin * safety_margin
+            
+            print(f"💰 账户可用余额: {available_balance:.2f} USDT")
+            print(f"📊 合约价值: {contract_value:.2f} USDT")
+            print(f"📊 所需保证金: {required_margin:.2f} USDT (杠杆: {ai_leverage}x)")
+            print(f"📊 考虑安全边际: {required_with_safety:.2f} USDT")
+            
+            if available_balance < required_with_safety:
+                # 余额不足，按比例缩减仓位
+                max_contract_value = available_balance * ai_leverage / safety_margin
+                max_position_size = max_contract_value / (current_price * contract_size)
+                max_position_size = round(max_position_size, 2)
+                
+                # 确保不小于最小交易量
+                if max_position_size < min_contracts:
+                    print(f"❌ AI策略无法执行：账户余额不足，所需保证金: {required_margin:.2f} USDT，可用余额: {available_balance:.2f} USDT")
+                    print(f"   交易信号: {signal_data['signal']}")
+                    print(f"   停止交易，等待下次AI信号")
+                    return
+                
+                # 如果缩减后仓位比AI要求的少太多（少于50%），则拒绝执行
+                if max_position_size < position_size * 0.5:
+                    print(f"❌ AI策略无法执行：账户余额严重不足")
+                    print(f"   AI要求仓位: {position_size:.2f} 张，但余额仅支持: {max_position_size:.2f} 张")
+                    print(f"   所需保证金: {required_margin:.2f} USDT，可用余额: {available_balance:.2f} USDT")
+                    print(f"   交易信号: {signal_data['signal']}")
+                    print(f"   停止交易，等待下次AI信号")
+                    return
+                
+                print(f"⚠️ 账户余额不足，AI要求仓位: {position_size:.2f} 张")
+                print(f"   缩减仓位至: {max_position_size:.2f} 张 (基于可用余额: {available_balance:.2f} USDT)")
+                position_size = max_position_size
+            else:
+                print(f"✅ 账户余额充足，可以执行AI策略")
+        except Exception as e:
+            print(f"❌ 验证账户余额失败: {e}")
+            print(f"   交易信号: {signal_data['signal']}")
+            print(f"   停止交易，等待下次AI信号")
+            import traceback
+            traceback.print_exc()
+            return
+        
+        # 设置AI返回的杠杆（在开仓前设置）
+        try:
+            exchange.set_leverage(
+                ai_leverage,
+                TRADE_CONFIG['symbol'],
+                {'mgnMode': 'cross'}  # 全仓模式
+            )
+            print(f"✅ 使用AI返回的杠杆倍数: {ai_leverage}x")
+        except Exception as e:
+            print(f"❌ AI策略执行失败：设置杠杆失败: {e}")
+            print(f"   交易信号: {signal_data['signal']}")
+            print(f"   停止交易，等待下次AI信号")
+            return
+        
+        print(f"✅ 使用AI返回的仓位: {position_size_coins}币 → {position_size:.2f} 张合约")
+        print(f"交易信号: {signal_data['signal']}")
+        print(f"信心程度: {signal_data['confidence']}")
+        print(f"仓位大小: {position_size:.2f} 张 (来源: AI返回的quantity)")
+        print(f"理由: {signal_data['reason']}")
+        print(f"当前持仓: {current_position}")
 
-    print(f"交易信号: {signal_data['signal']}")
-    print(f"信心程度: {signal_data['confidence']}")
-    print(f"智能仓位: {position_size:.2f} 张")
-    print(f"理由: {signal_data['reason']}")
-    print(f"当前持仓: {current_position}")
-
-    # 风险管理：实盘模式下，低信心信号跳过执行（模拟盘允许低信心信号用于测试）
-    if signal_data['confidence'] == 'LOW':
-        print("⚠️ 低信心信号，跳过执行")
-        return
+    # 完全使用AI返回的策略，包括低信心信号（AI已经在策略中考虑了风险）
 
     try:
         # 执行交易逻辑 - 支持同方向加仓减仓

@@ -215,16 +215,30 @@ def _convert_price_data_to_coin_data(price_data):
         }
 
 
-def _prepare_system_config():
-    """准备系统提示词配置"""
+def _prepare_system_config(account_balance=None):
+    """准备系统提示词配置
+    
+    Args:
+        account_balance: 账户余额（USDT），如果提供则使用此值作为起始资金
+    """
     symbol = TRADE_CONFIG['symbol']
     asset_universe = symbol.split('/')[0]  # 提取BTC
+    
+    # 如果没有提供账户余额，尝试从交易所获取
+    if account_balance is None:
+        try:
+            balance = exchange.fetch_balance()
+            account_balance = float(balance['USDT'].get('total', 0))  # 使用total作为账户总值
+            print(f"📊 从交易所获取账户余额: {account_balance:.2f} USDT")
+        except Exception as e:
+            print(f"⚠️ 获取账户余额失败: {e}，使用默认值: 10000")
+            account_balance = 10000
     
     return {
         'exchange': 'OKX',
         'model_name': 'DeepSeek-v1',
         'asset_universe': asset_universe,
-        'starting_capital': 10000,  # 可以从配置或账户获取
+        'starting_capital': account_balance,  # 使用实际账户余额
         'market_hours': '24/7',
         'decision_frequency': f'Every {TRADE_CONFIG["interval_minutes"]} minutes',
         'leverage_range': f'1-{TRADE_CONFIG["leverage"]}x',
@@ -383,14 +397,27 @@ def analyze_with_deepseek(price_data, position_data=None, account_data=None):
     ai_response = ''
     
     try:
-        # 1. 准备系统提示词
-        system_config = _prepare_system_config()
+        # 1. 获取账户余额用于系统提示词
+        account_balance_for_system = None
+        if account_data is not None:
+            # 模拟模式：使用提供的账户数据
+            account_balance_for_system = float(account_data.get('balance', account_data.get('equity', 0)))
+        else:
+            # 真实模式：从交易所获取
+            try:
+                balance = exchange.fetch_balance()
+                account_balance_for_system = float(balance['USDT'].get('total', 0))
+            except Exception as e:
+                print(f"⚠️ 获取账户余额用于系统提示词失败: {e}")
+        
+        # 2. 准备系统提示词
+        system_config = _prepare_system_config(account_balance_for_system)
         system_prompt = _builder.build_system_prompt(system_config)
         
-        # 2. 转换币种数据
+        # 3. 转换币种数据
         coin_data = _convert_price_data_to_coin_data(price_data)
         
-        # 3. 准备用户提示词参数（传递模拟模式的数据）
+        # 4. 准备用户提示词参数（传递模拟模式的数据）
         user_params = _prepare_user_prompt_params(price_data, coin_data, position_data, account_data)
         
         # 4. 构建用户提示词

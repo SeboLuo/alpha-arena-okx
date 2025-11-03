@@ -75,8 +75,8 @@ def main():
         print("3. 正在构建提示词...")
         builder = PromptBuilder()
         
-        # 系统提示词
-        system_config = _prepare_system_config()
+        # 系统提示词（自动从交易所获取账户余额）
+        system_config = _prepare_system_config()  # 函数内部会自动获取账户余额
         system_prompt = builder.build_system_prompt(system_config)
         print(f"   ✓ 系统提示词: {len(system_prompt)} 字符")
         
